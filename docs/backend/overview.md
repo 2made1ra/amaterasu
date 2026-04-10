@@ -23,3 +23,21 @@ The backend code is organized following a standard full-stack FastAPI template s
 * **`app/schemas/`:** Pydantic models used for data validation, serialization, and deserialization of API requests and responses.
 * **`app/services/`:** Contains business logic and integration code, such as the LangChain RAG pipeline (`rag.py`) and LLM integrations (`llm.py`).
 * **`main.py`:** The entry point of the FastAPI application.
+
+## Detailed Layer Documentation
+
+For a deep dive into each architectural layer, refer to the following documents:
+- [API Layer (`app/api`)](./layers/api.md)
+- [Core Layer (`app/core`)](./layers/core.md)
+- [CRUD Layer (`app/crud`)](./layers/crud.md)
+- [Database Layer (`app/db`)](./layers/db.md)
+- [Models Layer (`app/models`)](./layers/models.md)
+- [Schemas Layer (`app/schemas`)](./layers/schemas.md)
+- [Services Layer (`app/services`)](./layers/services.md)
+
+## Core Processes & C4 Diagrams
+
+The key workflows within the backend have been documented with C4 PlantUML diagrams. Refer to the following documents to understand these workflows in detail:
+- [Authentication Flow](./processes/authentication.md)
+- [Document Upload & Human-in-the-Loop Review](./processes/document_upload.md)
+- [RAG Agent Chat & Search](./processes/rag_chat.md)
