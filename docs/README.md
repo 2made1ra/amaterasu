@@ -24,3 +24,6 @@ Explore the documentation by module:
 
 ### 5. 🔌 API Reference
 * [API Endpoints Overview](api/endpoints.md) - A conceptual overview of the REST API (Auth, Documents, Chat). For full interactive documentation, run the backend and visit `/docs`.
+
+### 📖 Glossary
+* [Project Glossary](glossary.md) - A comprehensive list of technical and business terms used throughout the project.
