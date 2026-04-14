@@ -6,7 +6,7 @@ This guide is designed for developers who want to set up the Amaterasu project l
 
 Before you begin, ensure you have the following installed:
 - **Docker & Docker Compose**
-- **Python 3.9+**
+- **uv** (Modern Python package manager)
 - **Node.js v18+** & **npm**
 
 ---
@@ -31,16 +31,13 @@ Amaterasu relies on PostgreSQL for relational data and Qdrant for vector storage
    ```bash
    cd backend
    ```
-2. Create and activate a virtual environment:
+2. Install dependencies and create a virtual environment:
    ```bash
-   python -m venv venv
-   source venv/bin/activate  # Windows: venv\Scripts\activate
+   uv sync
    ```
-3. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-4. Configure environment variables:
+   *Note: This will automatically create a `.venv` directory and install all required packages.*
+
+3. Configure environment variables:
    Create a `.env` file in the `backend/` directory:
    ```env
    DATABASE_URL=postgresql://user:password@localhost/app_db
@@ -49,9 +46,9 @@ Amaterasu relies on PostgreSQL for relational data and Qdrant for vector storage
    SECRET_KEY=your_super_secret_key_here
    # Optional: OPENAI_API_KEY=your_key (if not using local models)
    ```
-5. Start the API server:
+4. Start the API server:
    ```bash
-   uvicorn app.main:app --reload
+   uv run uvicorn app.main:app --reload
    ```
    The API will be available at `http://localhost:8000`. You can view the interactive docs at `http://localhost:8000/docs`.
 
@@ -113,3 +110,4 @@ If you want to run the project entirely on your local hardware without external 
 - **CORS Errors**: Ensure the backend is running on port 8000 and the frontend on port 5173.
 - **Database Connection**: If the backend fails to start, double-check that `docker-compose` is running and the `DATABASE_URL` in `.env` is correct.
 - **Vector Search Issues**: Ensure Qdrant is accessible. You can check its status at `http://localhost:6333/dashboard`.
+- **uv Issues**: Ensure you have the latest version of `uv` installed. You can update it with `uv self update`.
