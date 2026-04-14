@@ -15,7 +15,7 @@ Explore the documentation by module:
 
 ### 3. ⚙️ Backend
 * [Backend Overview](backend/overview.md) - Details on the FastAPI and PostgreSQL backend structure.
-* [Backend Setup Guide](backend/setup.md) - Instructions on running the backend and required databases via Docker Compose.
+* [Backend Setup Guide](backend/setup.md) - Instructions on running the backend and required databases via Docker Compose using `uv`.
 
 ### 4. 🤖 AI Agent (RAG)
 * [Agent Overview](agent/overview.md) - Learn what the Retrieval-Augmented Generation agent does.

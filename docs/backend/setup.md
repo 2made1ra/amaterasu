@@ -1,10 +1,10 @@
 # Backend Setup Guide
 
-This guide describes how to run and set up the FastAPI backend application and its dependencies.
+This guide describes how to run and set up the FastAPI backend application and its dependencies using `uv`.
 
 ## Prerequisites
 
-* **Python:** Ensure you have Python 3.9+ installed.
+* **uv:** Ensure you have [uv](https://github.com/astral-sh/uv) installed.
 * **Docker & Docker Compose:** Required to run the PostgreSQL and Qdrant databases.
 
 ## Infrastructure Setup
@@ -28,18 +28,13 @@ This will start PostgreSQL on port `5432` and Qdrant on ports `6333` and `6334`.
    cd backend
    ```
 
-2. Create a virtual environment (recommended):
+2. Sync dependencies and create a virtual environment:
    ```bash
-   python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   uv sync
    ```
+   *Note: This creates a `.venv` directory and installs all dependencies listed in `pyproject.toml`.*
 
-3. Install the Python dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-4. Configure Environment Variables:
+3. Configure Environment Variables:
    Create a `.env` file in the `backend/` directory or ensure the environment variables are set. Key variables typically include:
    * `DATABASE_URL`: Connection string for PostgreSQL (e.g., `postgresql://user:password@localhost/app_db`).
    * `QDRANT_HOST`: e.g., `localhost`.
@@ -52,7 +47,7 @@ This will start PostgreSQL on port `5432` and Qdrant on ports `6333` and `6334`.
 To start the FastAPI development server:
 
 ```bash
-uvicorn app.main:app --reload
+uv run uvicorn app.main:app --reload
 ```
 
 The API will be accessible at `http://localhost:8000`.
@@ -65,4 +60,4 @@ FastAPI automatically generates interactive API documentation. Once the server i
 
 ## Database Initialization
 
-In the current setup, tables are created automatically on startup via `Base.metadata.create_all(bind=engine)` in `main.py`. For production or complex migrations, you should configure and use **Alembic**.
+In the current setup, tables are created automatically on startup via `Base.metadata.create_all(bind=engine)` in `main.py`. For production or complex migrations, you should configure and use **Alembic** (already included in the dependencies).

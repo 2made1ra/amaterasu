@@ -6,7 +6,7 @@ For a complex application to run reliably on any machine, we need a way to packa
 **Theory:** Before containers, installing software meant configuring the host operating system, installing specific versions of Python, Node.js, system libraries, and databases. If versions mismatched, the application broke ("It works on my machine!").
 Docker solves this via containers. A container is a lightweight, standalone, executable package that includes everything needed to run a piece of software: the code, runtime, system tools, and libraries.
 
-**Project Application:** The Amaterasu backend is packaged into a Docker container. We define a `Dockerfile` that says exactly what Python version to use and which dependencies (`requirements.txt`) to install. Because it runs in Docker, it doesn't matter if your laptop runs Windows, Mac, or Linux; the backend environment is perfectly isolated and consistent.
+**Project Application:** The Amaterasu backend is packaged into a Docker container. We define a `Dockerfile` that says exactly what Python version to use and which dependencies are managed via `uv` (as defined in `pyproject.toml`). Because it runs in Docker, it doesn't matter if your laptop runs Windows, Mac, or Linux; the backend environment is perfectly isolated and consistent.
 
 ## 2. Multi-Container Orchestration (Docker Compose)
 **Theory:** A modern full-stack application isn't just one piece of software. Amaterasu consists of:
