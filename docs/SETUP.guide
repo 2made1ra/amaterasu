@@ -1,0 +1,115 @@
+# Amaterasu Setup & Quick Start Guide
+
+This guide is designed for developers who want to set up the Amaterasu project locally for the first time, verify its core functionality, and explore its features.
+
+## 1. Prerequisites
+
+Before you begin, ensure you have the following installed:
+- **Docker & Docker Compose**
+- **Python 3.9+**
+- **Node.js v18+** & **npm**
+
+---
+
+## 2. Infrastructure Setup (Databases)
+
+Amaterasu relies on PostgreSQL for relational data and Qdrant for vector storage.
+
+1. From the project root, start the services:
+   ```bash
+   docker-compose up -d
+   ```
+2. Verify they are running:
+   - PostgreSQL: `localhost:5432`
+   - Qdrant Dashboard: `http://localhost:6333/dashboard`
+
+---
+
+## 3. Backend Setup
+
+1. Navigate to the `backend` directory:
+   ```bash
+   cd backend
+   ```
+2. Create and activate a virtual environment:
+   ```bash
+   python -m venv venv
+   source venv/bin/activate  # Windows: venv\Scripts\activate
+   ```
+3. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+4. Configure environment variables:
+   Create a `.env` file in the `backend/` directory:
+   ```env
+   DATABASE_URL=postgresql://user:password@localhost/app_db
+   QDRANT_HOST=localhost
+   QDRANT_PORT=6333
+   SECRET_KEY=your_super_secret_key_here
+   # Optional: OPENAI_API_KEY=your_key (if not using local models)
+   ```
+5. Start the API server:
+   ```bash
+   uvicorn app.main:app --reload
+   ```
+   The API will be available at `http://localhost:8000`. You can view the interactive docs at `http://localhost:8000/docs`.
+
+---
+
+## 4. Frontend Setup
+
+1. Navigate to the `frontend` directory:
+   ```bash
+   cd frontend
+   ```
+2. Install dependencies:
+   ```bash
+   npm install
+   ```
+3. Start the development server:
+   ```bash
+   npm run dev
+   ```
+   The application will be available at `http://localhost:5173`.
+
+---
+
+## 5. Manual Feature Verification
+
+Follow these steps to ensure the project is working correctly:
+
+### A. User Registration & Login
+1. Open `http://localhost:5173` in your browser.
+2. Navigate to the **Register** page.
+3. Create a new account. (Note: The first user created automatically becomes an **Admin**).
+4. Log in with your new credentials.
+
+### B. Document Upload & Human-in-the-Loop (HitL)
+1. Go to the **Upload** section.
+2. Select a PDF document (e.g., a technical manual or a product sheet).
+3. After the upload, the AI will extract metadata.
+4. **HitL Step**: You will be presented with the extracted metadata. Review it, make any necessary edits, and click **Confirm**.
+5. Once confirmed, the document is processed and indexed into the vector database.
+
+### C. AI RAG Chat
+1. Navigate to the **Chat** or **Assistant** section.
+2. Ask a question based on the document you just uploaded (e.g., "What are the main features mentioned in the document?").
+3. The agent should return a summarized response based *only* on the content of the uploaded document.
+
+---
+
+## 6. Local LLM Integration (LM Studio)
+
+If you want to run the project entirely on your local hardware without external AI APIs:
+1. Install [LM Studio](https://lmstudio.ai/).
+2. Load a compatible model (e.g., Llama 3, Qwen, or Gemma).
+3. Follow the detailed [LM Studio Setup Guide](./learning_guide/lmstudio_setup.md) to point Amaterasu to your local model.
+
+---
+
+## 7. Troubleshooting
+
+- **CORS Errors**: Ensure the backend is running on port 8000 and the frontend on port 5173.
+- **Database Connection**: If the backend fails to start, double-check that `docker-compose` is running and the `DATABASE_URL` in `.env` is correct.
+- **Vector Search Issues**: Ensure Qdrant is accessible. You can check its status at `http://localhost:6333/dashboard`.
