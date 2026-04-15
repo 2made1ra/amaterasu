@@ -22,6 +22,12 @@ def login_access_token(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Incorrect username or password"
         )
+
+    if security.password_hash_needs_upgrade(user.hashed_password):
+        user.hashed_password = security.get_password_hash(form_data.password)
+        db.add(user)
+        db.commit()
+
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     return {
         "access_token": security.create_access_token(

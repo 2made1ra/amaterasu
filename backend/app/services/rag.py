@@ -1,23 +1,40 @@
-from langchain_community.document_loaders import PyPDFLoader
-from langchain_community.vectorstores import Qdrant
-from qdrant_client import QdrantClient
-from qdrant_client.http import models
+import re
 from app.core.config import settings
 from app.services.llm import get_embeddings, get_llm
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.chains import RetrievalQA
-from langchain.prompts import PromptTemplate
-import re
-
-# Initialize Qdrant client
-qdrant_client = QdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
 
 COLLECTION_NAME = "contracts"
 
+class RagDependencyError(RuntimeError):
+    """Raised when optional RAG dependencies are unavailable."""
+
+
+def _get_text_splitter_class():
+    try:
+        from langchain_text_splitters import RecursiveCharacterTextSplitter
+        return RecursiveCharacterTextSplitter
+    except ImportError:
+        # Backward compatibility with older LangChain versions.
+        try:
+            from langchain.text_splitter import RecursiveCharacterTextSplitter
+            return RecursiveCharacterTextSplitter
+        except ImportError as exc:
+            raise RagDependencyError(
+                "Missing text splitter dependency. Install `langchain-text-splitters`."
+            ) from exc
+
+
 def process_pdf(file_path: str):
+    try:
+        from langchain_community.document_loaders import PyPDFLoader
+    except ImportError as exc:
+        raise RagDependencyError(
+            "Missing PDF loader dependency. Install `langchain-community`."
+        ) from exc
+
     loader = PyPDFLoader(file_path)
     documents = loader.load()
 
+    RecursiveCharacterTextSplitter = _get_text_splitter_class()
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
     docs = text_splitter.split_documents(documents)
     return docs
@@ -38,6 +55,13 @@ def extract_metadata_from_text(text: str):
     return {"deadline": extracted_date}
 
 def save_to_vectorstore(docs, document_id: int, owner_id: int):
+    try:
+        from langchain_community.vectorstores import Qdrant
+    except ImportError as exc:
+        raise RagDependencyError(
+            "Missing vectorstore dependency. Install `langchain-community`."
+        ) from exc
+
     # Add metadata for Tenant Isolation (filtering by owner and document)
     for doc in docs:
         doc.metadata["document_id"] = document_id
@@ -53,6 +77,18 @@ def save_to_vectorstore(docs, document_id: int, owner_id: int):
     )
 
 def query_rag(query: str, owner_id: int, document_id: int = None):
+    try:
+        from langchain_community.vectorstores import Qdrant
+        from langchain.chains import RetrievalQA
+        from langchain.prompts import PromptTemplate
+        from qdrant_client import QdrantClient
+        from qdrant_client.http import models
+    except ImportError as exc:
+        raise RagDependencyError(
+            "Missing RAG dependencies. Install LangChain and Qdrant client packages."
+        ) from exc
+
+    qdrant_client = QdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
     embeddings = get_embeddings()
     qdrant = Qdrant(
         client=qdrant_client, collection_name=COLLECTION_NAME,

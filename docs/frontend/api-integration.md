@@ -33,7 +33,7 @@ api.interceptors.request.use((config) => {
 To ensure smooth integration, the backend (FastAPI in this project) should adhere to the following principles:
 
 ### 1. CORS (Cross-Origin Resource Sharing)
-Since the frontend (running on `localhost:5173`) and the backend (running on `localhost:8000`) operate on different ports, they are considered different origins. The backend **must** have CORS properly configured to allow requests from the frontend origin.
+Since the frontend (running on `localhost:3000`) and the backend (running on `localhost:8000`) operate on different ports, they are considered different origins. The backend **must** have CORS properly configured to allow requests from the frontend origin.
 * Allow HTTP methods: `GET`, `POST`, `PUT`, `DELETE`, `OPTIONS`.
 * Allow headers: `Authorization`, `Content-Type`.
 

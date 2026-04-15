@@ -44,7 +44,7 @@ To start the Vite development server with Hot Module Replacement:
 npm run dev
 ```
 
-The application will be accessible in your browser, typically at `http://localhost:5173/` (Vite will print the exact URL in your terminal).
+The application will be accessible in your browser, typically at `http://localhost:3000/` (Vite will print the exact URL in your terminal).
 
 ### Integrating with the Backend
 
@@ -98,11 +98,11 @@ npm run preview
 * **Fix:**
   1. Verify the backend server is running and accessible at `localhost:8000`.
   2. Open the browser's Network tab (F12) to see exactly what URL the frontend is trying to hit.
-  3. Ensure the backend has CORS properly configured to accept requests from `http://localhost:5173`.
+  3. Ensure the backend has CORS properly configured to accept requests from `http://localhost:3000`.
 
 ### Port Already in Use
-* **Cause:** Another application is running on port `5173`.
-* **Fix:** Vite will usually automatically pick the next available port (e.g., `5174`). Check your terminal output to see the actual port Vite assigned.
+* **Cause:** Another application is running on port `3000`.
+* **Fix:** Vite will usually automatically pick the next available port (e.g., `3001`). Check your terminal output to see the actual port Vite assigned.
 
 ### Changes Aren't Showing Up
 * **Cause:** Browser caching or Vite HMR crashed.

@@ -4,7 +4,27 @@ from jose import jwt
 from passlib.context import CryptContext
 from app.core.config import settings
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
+
+
+def _is_legacy_bcrypt_hash(hashed_password: str) -> bool:
+    return hashed_password.startswith("$2")
+
+
+def _verify_legacy_bcrypt_password(plain_password: str, hashed_password: str) -> bool:
+    try:
+        import bcrypt
+    except ImportError:
+        return False
+
+    password_bytes = plain_password.encode("utf-8")
+    if len(password_bytes) > 72:
+        return False
+
+    try:
+        return bcrypt.checkpw(password_bytes, hashed_password.encode("utf-8"))
+    except ValueError:
+        return False
 
 def create_access_token(
     subject: Union[str, Any], expires_delta: timedelta = None
@@ -20,7 +40,13 @@ def create_access_token(
     return encoded_jwt
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
+    if _is_legacy_bcrypt_hash(hashed_password):
+        return _verify_legacy_bcrypt_password(plain_password, hashed_password)
     return pwd_context.verify(plain_password, hashed_password)
 
 def get_password_hash(password: str) -> str:
     return pwd_context.hash(password)
+
+
+def password_hash_needs_upgrade(hashed_password: str) -> bool:
+    return _is_legacy_bcrypt_hash(hashed_password) or pwd_context.needs_update(hashed_password)

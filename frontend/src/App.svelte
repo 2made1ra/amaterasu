@@ -1,12 +1,16 @@
 <script>
-  import { Router, Route, link } from "svelte-routing";
   import Login from "./pages/Login.svelte";
   import Dashboard from "./pages/Dashboard.svelte";
+  import { currentPath, navigate } from "./lib/router";
 
-  export let url = "";
+  // Redirect unknown routes to login.
+  $: if ($currentPath !== "/" && $currentPath !== "/dashboard") {
+    navigate("/", { replace: true });
+  }
 </script>
 
-<Router {url}>
-  <Route path="/" component={Login} />
-  <Route path="/dashboard" component={Dashboard} />
-</Router>
+{#if $currentPath === "/dashboard"}
+  <Dashboard />
+{:else}
+  <Login />
+{/if}

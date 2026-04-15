@@ -1,5 +1,5 @@
 <script>
-  import { navigate } from "svelte-routing";
+  import { navigate } from "../lib/router";
   import api from "../lib/api";
 
   let username = "";

@@ -68,7 +68,7 @@ Amaterasu relies on PostgreSQL for relational data and Qdrant for vector storage
    ```bash
    npm run dev
    ```
-   The application will be available at `http://localhost:5173`.
+   The application will be available at `http://localhost:3000`.
 
 ---
 
@@ -77,7 +77,7 @@ Amaterasu relies on PostgreSQL for relational data and Qdrant for vector storage
 Follow these steps to ensure the project is working correctly:
 
 ### A. User Registration & Login
-1. Open `http://localhost:5173` in your browser.
+1. Open `http://localhost:3000` in your browser.
 2. Navigate to the **Register** page.
 3. Create a new account. (Note: The first user created automatically becomes an **Admin**).
 4. Log in with your new credentials.
@@ -107,7 +107,7 @@ If you want to run the project entirely on your local hardware without external 
 
 ## 7. Troubleshooting
 
-- **CORS Errors**: Ensure the backend is running on port 8000 and the frontend on port 5173.
+- **CORS Errors**: Ensure the backend is running on port 8000 and the frontend on port 3000.
 - **Database Connection**: If the backend fails to start, double-check that `docker-compose` is running and the `DATABASE_URL` in `.env` is correct.
 - **Vector Search Issues**: Ensure Qdrant is accessible. You can check its status at `http://localhost:6333/dashboard`.
 - **uv Issues**: Ensure you have the latest version of `uv` installed. You can update it with `uv self update`.

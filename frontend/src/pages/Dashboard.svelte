@@ -1,6 +1,6 @@
 <script>
   import { onMount } from "svelte";
-  import { navigate } from "svelte-routing";
+  import { navigate } from "../lib/router";
   import api from "../lib/api";
   import Chat from "../components/Chat.svelte";
   import DocumentUpload from "../components/DocumentUpload.svelte";
