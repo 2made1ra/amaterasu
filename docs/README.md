@@ -25,5 +25,9 @@ Explore the documentation by module:
 ### 5. 🔌 API Reference
 * [API Endpoints Overview](api/endpoints.md) - A conceptual overview of the REST API (Auth, Documents, Chat). For full interactive documentation, run the backend and visit `/docs`.
 
+### 6. 🗺️ Plans
+* [Product Requirements Document](plans/prd.md) - Product goals, business context, and phased delivery expectations.
+* [Implementation Plan](plans/implementation_plan.md) - Sequential engineering plan for PostgreSQL, async ingestion, Qdrant indexing, and query routing.
+
 ### 📖 Glossary
 * [Project Glossary](glossary.md) - A comprehensive list of technical and business terms used throughout the project.
