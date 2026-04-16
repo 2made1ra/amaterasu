@@ -12,15 +12,16 @@ Reliable local development and deployment depend on **repeatable environments**.
 
 **Theory:** **Docker Compose** describes multiple services, ports, networks, and **volumes** in one YAML file so you can start PostgreSQL, Redis, Qdrant, etc. with one command.
 
-**In this project:** The root **`docker-compose.yml`** defines:
+**In this project:** The root **`docker-compose.yml`** defines the data services directly, and also includes optional `api` / Celery services behind the `app` profile:
 
 | Service | Purpose |
 |---------|---------|
 | **`db`** | PostgreSQL 15 (`user` / `password`, database `app_db`), port `5432`. |
 | **`qdrant`** | Vector store, ports `6333` (HTTP/API) and `6334`. |
 | **`redis`** | Broker/backend for Celery, port `6379`. |
+| **`api`**, **`celery-worker-high`**, **`celery-worker-bulk`** | Optional containerized backend services, started only with `--profile app`. |
 
-There is **no** `api` service in this file: the backend connects to `localhost` ports exposed by Compose. Run:
+For the default host-based dev flow, run:
 
 ```bash
 docker compose up -d
@@ -29,6 +30,12 @@ docker compose up -d
 (On older installs, `docker-compose up -d` is equivalent.)
 
 **Volumes** (`postgres_data`, `qdrant_data`) persist database files across container restarts.
+
+If you want the backend and workers in Docker too, run:
+
+```bash
+docker compose --profile app up -d --build
+```
 
 ## 3. Networking and configuration
 

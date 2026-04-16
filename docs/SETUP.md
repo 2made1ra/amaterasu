@@ -33,6 +33,12 @@ From the **repository root**:
 docker compose up -d
 ```
 
+This default command starts only the infrastructure services (`db`, `redis`, `qdrant`). The containerized backend is available separately via the `app` profile:
+
+```bash
+docker compose --profile app up -d --build
+```
+
 Verify:
 
 - PostgreSQL: `localhost:5432` (Compose defaults: user `user`, password `password`, database `app_db`)
@@ -150,9 +156,15 @@ Pass `LLM_PROVIDER`, `LMSTUDIO_API_BASE`, `LLM_MODEL`, etc. via Compose `environ
 
 ---
 
-## 7. Run everything with Docker Compose (API + workers + infra)
+## 7. Run the backend with Docker Compose (API + workers + infra)
 
-From the repo root you can bring up PostgreSQL, Qdrant, Redis, the **api** service, and **both** Celery workers (see `docker-compose.yml`). Configure LLM-related variables the same way as for local `uv`. Then use the frontend against `http://localhost:8000` as usual.
+From the repo root you can bring up PostgreSQL, Qdrant, Redis, the **api** service, and **both** Celery workers by enabling the `app` profile:
+
+```bash
+docker compose --profile app up -d --build
+```
+
+Configure LLM-related variables the same way as for local `uv`. Then use the frontend against `http://localhost:8000` as usual.
 
 ---
 

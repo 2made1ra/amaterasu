@@ -108,4 +108,19 @@ class Document(Base):
 
     @property
     def extracted_deadline(self):
+        if not self.contract_facts or self.active_extraction_version is None:
+            return None
+
+        for contract_fact in self.contract_facts:
+            if contract_fact.extraction_version != self.active_extraction_version:
+                continue
+            facts = contract_fact.facts or {}
+            for key in ("service_completion_date", "effective_date", "termination_date"):
+                value = facts.get(key)
+                if not value:
+                    continue
+                try:
+                    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+                except ValueError:
+                    continue
         return None

@@ -46,8 +46,15 @@ def test_confirm_document_updates_facts_and_enqueues_indexing(client, db_session
         ContractFact(
             document_id=document.id,
             extraction_version=1,
-            schema_version=1,
-            facts={"supplier": "Acme LLC", "amount": 1000},
+            schema_version=3,
+            facts={
+                "company_name": "Acme LLC",
+                "signatory_name": "Ivan Petrov",
+                "contact_phone": "+7 999 123-45-67",
+                "service_price": "1000 RUB",
+                "service_subject": "Consulting",
+                "service_completion_date": "2026-05-15",
+            },
         )
     )
     db_session.commit()
@@ -63,7 +70,17 @@ def test_confirm_document_updates_facts_and_enqueues_indexing(client, db_session
 
     response = client.post(
         f"/api/v1/documents/{document.id}/confirm",
-        json={"facts": {"supplier": "Globex", "amount": 2500}},
+        json={
+            "facts": {
+                "company_name": "Globex",
+                "signatory_name": "Petr Sidorov",
+                "contact_phone": "+7 900 000-00-00",
+                "service_price": "2500 RUB",
+                "service_subject": "Equipment maintenance",
+                "service_completion_date": "2026-06-30",
+                "summary": "Updated after manual review",
+            }
+        },
     )
 
     assert response.status_code == 200
@@ -82,8 +99,86 @@ def test_confirm_document_updates_facts_and_enqueues_indexing(client, db_session
     assert refreshed_document.review_status == DocumentReviewStatus.APPROVED
     assert refreshed_document.approval_source == DocumentApprovalSource.MANUAL
     assert refreshed_document.indexing_status == DocumentIndexingStatus.QUEUED
-    assert refreshed_facts.facts["supplier"] == "Globex"
-    assert refreshed_facts.facts["amount"] == 2500
+    assert refreshed_facts.facts["company_name"] == "Globex"
+    assert refreshed_facts.facts["service_price"] == "2500 RUB"
+
+
+def test_confirm_document_rejects_incomplete_required_facts(client, db_session, test_user, tmp_path):
+    document = crud_document.create_document(
+        db_session,
+        title="Manual Review Contract",
+        file_path=str(tmp_path / "manual-invalid.pdf"),
+        owner_id=test_user.id,
+        content_type="application/pdf",
+        file_size_bytes=512,
+        ingestion_source=IngestionSource.USER_UPLOAD,
+        queue_priority=QueuePriority.HIGH,
+        trusted_import=False,
+    )
+    document.processing_status = DocumentProcessingStatus.FACTS_READY
+    document.active_extraction_version = 1
+    db_session.add(
+        ContractFact(
+            document_id=document.id,
+            extraction_version=1,
+            schema_version=3,
+            facts={
+                "company_name": "Acme LLC",
+                "signatory_name": "Ivan Petrov",
+                "contact_phone": "+7 999 123-45-67",
+                "service_price": "1000 RUB",
+                "service_subject": "Consulting",
+                "service_completion_date": "2026-05-15",
+            },
+        )
+    )
+    db_session.commit()
+
+    response = client.post(
+        f"/api/v1/documents/{document.id}/confirm",
+        json={"facts": {"company_name": "Globex"}},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "LLM response did not match the expected fact schema"
+
+
+def test_confirm_document_rejects_existing_incomplete_facts_without_manual_override(client, db_session, test_user, tmp_path):
+    document = crud_document.create_document(
+        db_session,
+        title="Manual Review Contract",
+        file_path=str(tmp_path / "manual-existing-invalid.pdf"),
+        owner_id=test_user.id,
+        content_type="application/pdf",
+        file_size_bytes=512,
+        ingestion_source=IngestionSource.USER_UPLOAD,
+        queue_priority=QueuePriority.HIGH,
+        trusted_import=False,
+    )
+    document.processing_status = DocumentProcessingStatus.FACTS_READY
+    document.active_extraction_version = 1
+    db_session.add(
+        ContractFact(
+            document_id=document.id,
+            extraction_version=1,
+            schema_version=3,
+            facts={
+                "company_name": "Acme LLC",
+                "signatory_name": None,
+                "contact_phone": "+7 999 123-45-67",
+                "service_price": "1000 RUB",
+                "service_subject": "Consulting",
+                "service_completion_date": "2026-05-15",
+                "missing_required_fields": ["signatory_name"],
+            },
+        )
+    )
+    db_session.commit()
+
+    response = client.post(f"/api/v1/documents/{document.id}/confirm")
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "LLM response did not match the expected fact schema"
 
 
 def test_trusted_bulk_document_auto_approves_and_enqueues_indexing(
@@ -116,7 +211,20 @@ def test_trusted_bulk_document_auto_approves_and_enqueues_indexing(
     monkeypatch.setattr("app.tasks.documents.SessionLocal", session_factory)
     monkeypatch.setattr(
         "app.tasks.documents.extract_contract_facts_from_markdown",
-        lambda markdown: SimpleNamespace(model_dump=lambda: {"supplier": "Trusted Co", "summary": "Approved"}),
+        lambda markdown: SimpleNamespace(
+            model_dump=lambda: {
+                "company_name": "Trusted Co",
+                "signatory_name": "Anna Smirnova",
+                "contact_phone": "+7 922 000-11-22",
+                "service_price": "50000 RUB",
+                "service_subject": "Warehouse services",
+                "service_completion_date": "2026-07-01",
+                "missing_required_fields": [],
+                "parser_quality": "medium",
+                "parser_quality_score": 0.61,
+                "summary": "Approved",
+            }
+        ),
     )
 
     captured = {}
@@ -139,7 +247,7 @@ def test_trusted_bulk_document_auto_approves_and_enqueues_indexing(
     assert refreshed_document.review_status == DocumentReviewStatus.APPROVED
     assert refreshed_document.approval_source == DocumentApprovalSource.TRUSTED_IMPORT
     assert refreshed_document.indexing_status == DocumentIndexingStatus.QUEUED
-    assert stored_facts.facts["supplier"] == "Trusted Co"
+    assert stored_facts.facts["company_name"] == "Trusted Co"
     assert captured["args"] == [document.id]
     assert captured["queue"] == settings.CELERY_BULK_QUEUE
 
@@ -174,7 +282,19 @@ def test_normal_document_stops_at_facts_ready_without_auto_approval(
     monkeypatch.setattr("app.tasks.documents.SessionLocal", session_factory)
     monkeypatch.setattr(
         "app.tasks.documents.extract_contract_facts_from_markdown",
-        lambda markdown: SimpleNamespace(model_dump=lambda: {"supplier": "Standard Co"}),
+        lambda markdown: SimpleNamespace(
+            model_dump=lambda: {
+                "company_name": "Standard Co",
+                "signatory_name": "Maria Volkova",
+                "contact_phone": "+7 343 000-00-01",
+                "service_price": "12000 RUB",
+                "service_subject": "Cleaning services",
+                "service_completion_date": "2026-05-28",
+                "missing_required_fields": [],
+                "parser_quality": "medium",
+                "parser_quality_score": 0.64,
+            }
+        ),
     )
 
     captured = {"called": False}
@@ -194,6 +314,75 @@ def test_normal_document_stops_at_facts_ready_without_auto_approval(
     assert refreshed_document.review_status == DocumentReviewStatus.PENDING_REVIEW
     assert refreshed_document.approval_source is None
     assert refreshed_document.indexing_status == DocumentIndexingStatus.NOT_INDEXED
+    assert captured["called"] is False
+
+
+def test_trusted_bulk_document_with_missing_required_fields_stops_for_review(
+    db_session,
+    session_factory,
+    test_user,
+    monkeypatch,
+    tmp_path,
+):
+    document = crud_document.create_document(
+        db_session,
+        title="Trusted Import Missing Fields",
+        file_path=str(tmp_path / "trusted-missing.pdf"),
+        owner_id=test_user.id,
+        content_type="application/pdf",
+        file_size_bytes=256,
+        ingestion_source=IngestionSource.BULK_IMPORT,
+        queue_priority=QueuePriority.LOW,
+        trusted_import=True,
+    )
+    extraction_run = crud_document.create_extraction_run(
+        db_session,
+        document_id=document.id,
+        extraction_version=1,
+        status=ExtractionRunStatus.RUNNING,
+    )
+    markdown_path = tmp_path / "trusted-missing.md"
+    markdown_path.write_text("# Trusted Contract", encoding="utf-8")
+
+    monkeypatch.setattr("app.tasks.documents.SessionLocal", session_factory)
+    monkeypatch.setattr(
+        "app.tasks.documents.extract_contract_facts_from_markdown",
+        lambda markdown: SimpleNamespace(
+            model_dump=lambda: {
+                "document_kind": "supplier_order",
+                "company_name": "Trusted Co",
+                "signatory_name": None,
+                "contact_phone": "+7 922 000-11-22",
+                "service_price": "50000 RUB",
+                "service_subject": "Warehouse services",
+                "service_completion_date": "2026-07-01",
+                "missing_required_fields": ["signatory_name"],
+                "parser_quality": "medium",
+                "parser_quality_score": 0.61,
+            },
+            missing_required_fields=["signatory_name"],
+        ),
+    )
+
+    captured = {"called": False}
+
+    def fake_apply_async(*, args, queue):
+        captured["called"] = True
+        return SimpleNamespace(id="task-index-trusted-missing-001")
+
+    monkeypatch.setattr("app.tasks.documents.index_document.apply_async", fake_apply_async)
+
+    extract_document_facts.run(document.id, extraction_run.id, str(markdown_path))
+
+    db_session.expire_all()
+    refreshed_document = db_session.get(Document, document.id)
+    stored_facts = db_session.query(ContractFact).filter(ContractFact.document_id == document.id).one()
+
+    assert refreshed_document.processing_status == DocumentProcessingStatus.FACTS_READY
+    assert refreshed_document.review_status == DocumentReviewStatus.PENDING_REVIEW
+    assert refreshed_document.approval_source is None
+    assert refreshed_document.indexing_status == DocumentIndexingStatus.NOT_INDEXED
+    assert stored_facts.facts["missing_required_fields"] == ["signatory_name"]
     assert captured["called"] is False
 
 
@@ -253,11 +442,28 @@ def test_index_document_deletes_old_vectors_before_upserting_new_ones(
         ContractFact(
             document_id=document.id,
             extraction_version=1,
-            schema_version=1,
-            facts={"supplier": "Indexable Co"},
+            schema_version=3,
+            facts={
+                "company_name": "Indexable Co",
+                "signatory_name": "Elena Volkova",
+                "contact_phone": "+7 343 111-22-33",
+                "service_price": "42000 RUB",
+                "service_subject": "Event logistics",
+                "service_completion_date": "2026-06-01",
+                "summary": None,
+                "parser_quality": "medium",
+                "parser_quality_score": 0.71,
+            },
         )
     )
     db_session.commit()
+
+    metadata_path = artifact_root / "indexed.parse.json"
+    metadata_path.parent.mkdir(parents=True, exist_ok=True)
+    metadata_path.write_text(
+        '{"quality_label":"medium","quality_score":0.71,"extraction_method":"ocr","page_count":1,"usable_page_count":1,"low_quality_page_count":0,"total_text_chars":200,"pages":[]}',
+        encoding="utf-8",
+    )
 
     markdown_path = artifact_root / "indexed.md"
     markdown_path.parent.mkdir(parents=True, exist_ok=True)
@@ -297,6 +503,67 @@ def test_index_document_deletes_old_vectors_before_upserting_new_ones(
         ("summary", document.id, "summary text"),
         ("chunks", document.id, ["chunk a", "chunk b"]),
     ]
+
+
+def test_index_document_rejects_low_quality_facts(
+    db_session,
+    session_factory,
+    test_user,
+    monkeypatch,
+    tmp_path,
+):
+    artifact_root = tmp_path / "artifacts"
+    monkeypatch.setattr(settings, "PARSED_MARKDOWN_DIR", str(artifact_root))
+
+    document = crud_document.create_document(
+        db_session,
+        title="Low Quality Contract",
+        file_path=str(tmp_path / "low-quality.pdf"),
+        owner_id=test_user.id,
+        content_type="application/pdf",
+        file_size_bytes=512,
+        ingestion_source=IngestionSource.USER_UPLOAD,
+        queue_priority=QueuePriority.HIGH,
+        trusted_import=False,
+    )
+    document.processing_status = DocumentProcessingStatus.FACTS_READY
+    document.review_status = DocumentReviewStatus.APPROVED
+    document.approval_source = DocumentApprovalSource.MANUAL
+    document.active_extraction_version = 1
+    db_session.add(
+        ContractFact(
+            document_id=document.id,
+            extraction_version=1,
+            schema_version=3,
+            facts={
+                "company_name": "Indexable Co",
+                "signatory_name": "Elena Volkova",
+                "contact_phone": "+7 343 111-22-33",
+                "service_price": "42000 RUB",
+                "service_subject": "Event logistics",
+                "service_completion_date": "2026-06-01",
+                "parser_quality": "low",
+                "parser_quality_score": 0.22,
+            },
+        )
+    )
+    db_session.commit()
+
+    markdown_path = artifact_root / "low-quality.md"
+    markdown_path.parent.mkdir(parents=True, exist_ok=True)
+    markdown_path.write_text("# Low Quality Contract", encoding="utf-8")
+
+    monkeypatch.setattr("app.tasks.documents.SessionLocal", session_factory)
+
+    try:
+        index_document.run(document.id)
+    except Exception:
+        pass
+
+    db_session.expire_all()
+    refreshed_document = db_session.get(Document, document.id)
+
+    assert refreshed_document.indexing_status == DocumentIndexingStatus.FAILED
 
 
 def test_worker_startup_registers_index_document_task():

@@ -205,9 +205,14 @@ def _format_sql_answer(matches, filters: QueryFilters) -> str:
     lines = [f"I found {len(matches)} approved contract(s) matching {_describe_filters(filters)}:"]
     for match in matches[:5]:
         facts = match.facts
-        supplier = facts.get("supplier") or ", ".join(facts.get("parties") or [])
-        effective_date = facts.get("effective_date") or "unknown effective date"
-        lines.append(f"- {match.document.title} ({supplier or 'unknown supplier'}, {effective_date})")
+        supplier = facts.get("company_name") or facts.get("supplier") or ", ".join(facts.get("parties") or [])
+        effective_date = (
+            facts.get("service_completion_date")
+            or facts.get("effective_date")
+            or facts.get("termination_date")
+            or "unknown date"
+        )
+        lines.append(f"- {match.document.title} ({supplier or 'unknown company'}, {effective_date})")
     return "\n".join(lines)
 
 

@@ -134,6 +134,11 @@ class ContractVectorIndex:
             "page_content": text,
             "metadata": metadata,
         }
+        facts = getattr(document, "contract_facts", None)
+        active_facts = facts[0].facts if facts else {}
+        if active_facts:
+            payload["company_name"] = active_facts.get("company_name") or active_facts.get("supplier")
+            payload["document_kind"] = active_facts.get("document_kind")
         if chunk_index is not None:
             payload["chunk_index"] = chunk_index
 

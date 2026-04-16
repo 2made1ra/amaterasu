@@ -45,6 +45,7 @@ def search_contract_facts(
     if filters.supplier:
         supplier_value = filters.supplier.lower()
         supplier_fields = (
+            ContractFact.facts["company_name"].as_string(),
             ContractFact.facts["supplier"].as_string(),
             ContractFact.facts["vendor"].as_string(),
             ContractFact.facts["counterparty"].as_string(),
@@ -61,6 +62,7 @@ def search_contract_facts(
                 func.coalesce(ContractFact.facts["year"].as_string(), "") == str(filters.year),
                 func.coalesce(ContractFact.facts["effective_date"].as_string(), "").like(year_prefix),
                 func.coalesce(ContractFact.facts["termination_date"].as_string(), "").like(year_prefix),
+                func.coalesce(ContractFact.facts["service_completion_date"].as_string(), "").like(year_prefix),
             )
         )
 
@@ -68,6 +70,7 @@ def search_contract_facts(
         date_floor = filters.date_from.isoformat()
         query = query.filter(
             func.coalesce(
+                ContractFact.facts["service_completion_date"].as_string(),
                 ContractFact.facts["effective_date"].as_string(),
                 ContractFact.facts["termination_date"].as_string(),
                 "",
@@ -79,6 +82,7 @@ def search_contract_facts(
         date_ceiling = filters.date_to.isoformat()
         query = query.filter(
             func.coalesce(
+                ContractFact.facts["service_completion_date"].as_string(),
                 ContractFact.facts["effective_date"].as_string(),
                 ContractFact.facts["termination_date"].as_string(),
                 "",

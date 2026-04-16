@@ -1,5 +1,11 @@
-# Инфраструктура + backend: API и два Celery-воркера (очереди из app/core/config.py).
-# Сеть: сервисные имена db, qdrant, redis — не localhost.
+# Локальный dev по умолчанию: только инфраструктура.
+# Полный контейнерный backend запускается явно:
+#   docker compose --profile app up -d --build
+# Сеть: внутри Docker используйте сервисные имена db, qdrant, redis — не localhost.
+
+x-backend-build: &backend-build
+  context: ./backend
+  dockerfile: Dockerfile
 
 x-backend-env: &backend-env
   DATABASE_URL: postgresql://user:password@db:5432/app_db
@@ -54,10 +60,8 @@ services:
       retries: 5
 
   api:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    image: amaterasu-backend:latest
+    profiles: ["app"]
+    build: *backend-build
     restart: unless-stopped
     ports:
       - "8000:8000"
@@ -83,10 +87,8 @@ services:
         exec uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
 
   celery-worker-high:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    image: amaterasu-backend:latest
+    profiles: ["app"]
+    build: *backend-build
     restart: unless-stopped
     environment:
       <<: *backend-env
@@ -112,10 +114,8 @@ services:
       - --loglevel=info
 
   celery-worker-bulk:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    image: amaterasu-backend:latest
+    profiles: ["app"]
+    build: *backend-build
     restart: unless-stopped
     environment:
       <<: *backend-env

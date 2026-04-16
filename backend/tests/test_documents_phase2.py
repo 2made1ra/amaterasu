@@ -1,3 +1,4 @@
+import importlib
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -14,7 +15,13 @@ from app.models.document import (
 )
 from app.models.extraction_run import ExtractionRun, ExtractionRunStatus
 from app.services.bulk_ingestion import build_upload_plan
-from app.services.fact_extraction import FactExtractionValidationError
+from app.services.fact_extraction import (
+    FactExtractionValidationError,
+    has_complete_required_facts,
+    is_contract_facts_indexable,
+    prepare_contract_facts_payload,
+    validate_contract_facts_payload,
+)
 from app.tasks.documents import extract_document_facts, process_document
 
 
@@ -75,6 +82,28 @@ def test_worker_startup_registers_document_tasks():
     assert "app.tasks.documents.extract_document_facts" in celery_app.tasks
 
 
+def test_worker_import_bootstraps_models_for_document_queries(db_session, test_user):
+    importlib.import_module("app.worker")
+
+    document = crud_document.create_document(
+        db_session,
+        title="Worker bootstrap contract",
+        file_path="/tmp/worker-bootstrap.pdf",
+        owner_id=test_user.id,
+        content_type="application/pdf",
+        file_size_bytes=64,
+        ingestion_source=IngestionSource.USER_UPLOAD,
+        queue_priority=QueuePriority.HIGH,
+        trusted_import=False,
+    )
+
+    fetched_document = crud_document.get_document(db_session, document.id)
+
+    assert fetched_document is not None
+    assert fetched_document.id == document.id
+    assert fetched_document.owner_id == test_user.id
+
+
 def test_process_document_marks_parsing_and_enqueues_fact_extraction(
     db_session,
     session_factory,
@@ -98,7 +127,11 @@ def test_process_document_marks_parsing_and_enqueues_fact_extraction(
     monkeypatch.setattr("app.tasks.documents.SessionLocal", session_factory)
     monkeypatch.setattr(
         "app.tasks.documents.parse_pdf_to_markdown",
-        lambda file_path: SimpleNamespace(markdown="# Contract", artifact_path=str(tmp_path / "contract.md")),
+        lambda file_path: SimpleNamespace(
+            markdown="# Contract",
+            artifact_path=str(tmp_path / "contract.md"),
+            metadata_path=str(tmp_path / "contract.parse.json"),
+        ),
     )
 
     captured = {}
@@ -122,6 +155,7 @@ def test_process_document_marks_parsing_and_enqueues_fact_extraction(
     assert extraction_runs[0].status == ExtractionRunStatus.RUNNING
     assert captured["queue"] == settings.CELERY_HIGH_PRIORITY_QUEUE
     assert captured["args"][0] == document.id
+    assert captured["args"][3].endswith("contract.parse.json")
 
 
 def test_process_document_failure_marks_document_failed(
@@ -195,6 +229,12 @@ def test_extract_document_facts_persists_validated_facts(
         "app.tasks.documents.extract_contract_facts_from_markdown",
         lambda markdown: SimpleNamespace(
             model_dump=lambda: {
+                "company_name": "Acme LLC",
+                "signatory_name": "Ivan Petrov",
+                "contact_phone": "+7 999 123-45-67",
+                "service_price": "150000 RUB",
+                "service_subject": "Logistics support",
+                "service_completion_date": "2026-05-20",
                 "document_title": "Ready Contract",
                 "parties": ["Acme LLC", "Globex"],
                 "summary": "Agreement summary",
@@ -213,6 +253,14 @@ def test_extract_document_facts_persists_validated_facts(
     assert refreshed_document.processing_status == DocumentProcessingStatus.FACTS_READY
     assert refreshed_document.active_extraction_version == 1
     assert refreshed_run.status == ExtractionRunStatus.SUCCEEDED
+    assert stored_facts.schema_version == 3
+    assert stored_facts.facts["company_name"] == "Acme LLC"
+    assert stored_facts.facts["signatory_name"] == "Ivan Petrov"
+    assert stored_facts.facts["contact_phone"] == "+7 999 123-45-67"
+    assert stored_facts.facts["service_price"] == "150000 RUB"
+    assert stored_facts.facts["service_subject"] == "Logistics support"
+    assert stored_facts.facts["service_completion_date"] == "2026-05-20"
+    assert stored_facts.facts["missing_required_fields"] == []
     assert stored_facts.facts["document_title"] == "Ready Contract"
 
 
@@ -261,6 +309,119 @@ def test_extract_document_facts_invalid_payload_marks_failure(
     assert refreshed_document.last_error == "schema mismatch"
     assert refreshed_run.status == ExtractionRunStatus.FAILED
     assert refreshed_run.error_details["source"] == "llm_validation"
+
+
+def test_extract_document_facts_requires_prd_required_fields():
+    try:
+        validate_contract_facts_payload(
+            {
+                "company_name": "Acme LLC",
+                "signatory_name": "Ivan Petrov",
+                "contact_phone": "+7 999 123-45-67",
+                "service_price": "150000 RUB",
+                "service_subject": "Logistics support",
+            }
+        )
+    except FactExtractionValidationError:
+        pass
+    else:
+        raise AssertionError("Expected validation error for missing service_completion_date")
+
+
+def test_extract_document_facts_validation_accepts_required_prd_fields():
+    facts = validate_contract_facts_payload(
+        {
+            "company_name": "Acme LLC",
+            "signatory_name": "Ivan Petrov",
+            "contact_phone": "+7 999 123-45-67",
+            "service_price": "150000 RUB",
+            "service_subject": "Logistics support",
+            "service_completion_date": "2026-05-20",
+        }
+    )
+
+    assert facts.company_name == "Acme LLC"
+    assert facts.service_completion_date == "2026-05-20"
+
+
+def test_prepare_contract_facts_payload_preserves_document_kind_and_missing_required_fields():
+    facts = prepare_contract_facts_payload(
+        {
+            "document_kind": "supplier_order",
+            "company_name": "Acme LLC",
+            "signatory_name": None,
+            "contact_phone": "+7 999 123-45-67",
+            "service_price": "150000 RUB",
+            "service_subject": "Logistics support",
+            "service_completion_date": "2026-05-20",
+        },
+        parsing_metadata={"quality_label": "medium", "quality_score": 0.55, "extraction_method": "ocr"},
+    )
+
+    assert facts.document_kind == "supplier_order"
+    assert facts.missing_required_fields == ["signatory_name"]
+    assert facts.parsing_method == "ocr"
+    assert facts.parser_quality == "medium"
+
+
+def test_has_complete_required_facts_requires_all_mandatory_business_fields():
+    assert has_complete_required_facts(
+        {
+            "company_name": "Acme LLC",
+            "signatory_name": "Ivan Petrov",
+            "contact_phone": "+7 999 123-45-67",
+            "service_price": "150000 RUB",
+            "service_subject": "Logistics support",
+            "service_completion_date": "2026-05-20",
+        }
+    )
+    assert not has_complete_required_facts(
+        {
+            "company_name": "Acme LLC",
+            "contact_phone": "+7 999 123-45-67",
+            "service_price": "150000 RUB",
+            "service_subject": "Logistics support",
+            "service_completion_date": "2026-05-20",
+        }
+    )
+
+
+def test_indexability_blocks_low_quality_or_incomplete_facts():
+    assert is_contract_facts_indexable(
+        {
+            "company_name": "Acme LLC",
+            "signatory_name": "Ivan Petrov",
+            "contact_phone": "+7 999 123-45-67",
+            "service_price": "150000 RUB",
+            "service_subject": "Logistics support",
+            "service_completion_date": "2026-05-20",
+            "parser_quality": "medium",
+            "parser_quality_score": 0.66,
+        }
+    )
+    assert not is_contract_facts_indexable(
+        {
+            "company_name": "Acme LLC",
+            "contact_phone": "+7 999 123-45-67",
+            "service_price": "150000 RUB",
+            "service_subject": "Logistics support",
+            "service_completion_date": "2026-05-20",
+            "parser_quality": "medium",
+            "parser_quality_score": 0.66,
+        }
+    )
+    assert not is_contract_facts_indexable(
+        {
+            "company_name": "Acme LLC",
+            "signatory_name": "Ivan Petrov",
+            "contact_phone": "+7 999 123-45-67",
+            "service_price": "150000 RUB",
+            "service_subject": "Logistics support",
+            "service_completion_date": "2026-05-20",
+            "parser_quality": "low",
+            "parser_quality_score": 0.21,
+        }
+    )
 
 
 def test_extract_document_facts_task_exposes_rate_limit():

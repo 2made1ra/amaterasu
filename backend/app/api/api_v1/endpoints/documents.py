@@ -29,6 +29,7 @@ from app.schemas.document import (
     UploadDocumentResponse,
 )
 from app.services import workspace
+from app.services.fact_extraction import FactExtractionValidationError, validate_contract_facts_payload
 from app.tasks.documents import enqueue_index_document, process_document, select_document_queue
 
 
@@ -184,13 +185,19 @@ async def confirm_document(
     if active_facts is None:
         raise HTTPException(status_code=409, detail="Document facts are not available for confirmation")
 
+    facts_to_validate = payload_facts if payload_facts is not None else active_facts.facts
+    try:
+        validated_facts = validate_contract_facts_payload(facts_to_validate)
+    except FactExtractionValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     if payload_facts is not None:
         crud_document.upsert_contract_facts(
             db,
             document_id=document.id,
             extraction_version=active_facts.extraction_version,
             schema_version=active_facts.schema_version,
-            facts=payload_facts,
+            facts=validated_facts.model_dump(),
         )
 
     approved_document = crud_document.approve_document(

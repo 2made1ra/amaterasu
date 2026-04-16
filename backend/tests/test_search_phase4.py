@@ -40,11 +40,12 @@ def _create_approved_document(
         ContractFact(
             document_id=document.id,
             extraction_version=1,
-            schema_version=1,
+            schema_version=3,
             facts={
-                "supplier": supplier,
+                "company_name": supplier,
                 "effective_date": effective_date,
                 "termination_date": termination_date,
+                "service_completion_date": effective_date,
                 "summary": f"{title} summary",
             },
         )
@@ -98,7 +99,7 @@ def test_sql_search_filters_by_year_supplier_and_date_range(db_session, test_use
     )
 
     assert [match.document.id for match in matches] == [acme_2023.id]
-    assert matches[0].facts["supplier"] == "Acme LLC"
+    assert matches[0].facts["company_name"] == "Acme LLC"
 
 
 def test_summary_then_chunks_limits_chunk_search_to_top_three_documents():

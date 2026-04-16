@@ -32,6 +32,12 @@ Services in `docker-compose.yml`:
 | `qdrant` | `qdrant/qdrant`  | `6333`, `6334` | REST API and dashboard on `6333`         |
 | `redis`  | `redis:7-alpine` | `6379`       | Broker for Celery                          |
 
+The same Compose file also contains optional `api` and Celery worker services behind the `app` profile. Use that only if you want to run the backend stack in Docker too:
+
+```bash
+docker compose --profile app up -d --build
+```
+
 **Redis-only (optional):** If PostgreSQL and Qdrant are already running elsewhere, you can start only Redis for workers, for example:
 
 ```bash

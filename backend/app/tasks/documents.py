@@ -21,12 +21,18 @@ from app.services.document_indexing import (
 from app.services.document_parser import (
     DocumentParsingError,
     parse_pdf_to_markdown,
+    read_parsing_metadata,
     resolve_markdown_artifact_path,
 )
 from app.services.fact_extraction import (
     FactExtractionError,
     FactExtractionValidationError,
+    CURRENT_CONTRACT_FACTS_SCHEMA_VERSION,
     extract_contract_facts_from_markdown,
+    has_complete_required_facts,
+    is_contract_facts_indexable,
+    prepare_contract_facts_payload,
+    validate_contract_facts_payload,
 )
 from app.services.qdrant_index import QdrantIndexError, get_contract_vector_index
 from app.tasks.base import LoggedTask
@@ -93,7 +99,7 @@ def process_document(self, document_id: int):
         parsed_document = parse_pdf_to_markdown(document.file_path)
         queue_name = select_document_queue(document.ingestion_source, document.queue_priority)
         async_result = extract_document_facts.apply_async(
-            args=[document.id, extraction_run.id, parsed_document.artifact_path],
+            args=[document.id, extraction_run.id, parsed_document.artifact_path, parsed_document.metadata_path],
             queue=queue_name,
         )
         logger.info(
@@ -137,7 +143,13 @@ def process_document(self, document_id: int):
     base=LoggedTask,
     rate_limit=settings.CELERY_EXTRACTION_RATE_LIMIT,
 )
-def extract_document_facts(self, document_id: int, extraction_run_id: int, markdown_path: str):
+def extract_document_facts(
+    self,
+    document_id: int,
+    extraction_run_id: int,
+    markdown_path: str,
+    metadata_path: str | None = None,
+):
     db = SessionLocal()
     try:
         logger.info(
@@ -148,7 +160,15 @@ def extract_document_facts(self, document_id: int, extraction_run_id: int, markd
             markdown_path,
         )
         markdown = Path(markdown_path).read_text(encoding="utf-8")
-        extracted_facts = extract_contract_facts_from_markdown(markdown)
+        parsing_metadata = read_parsing_metadata(metadata_path)
+        if parsing_metadata is None:
+            extracted_facts = extract_contract_facts_from_markdown(markdown)
+        else:
+            extracted_facts = extract_contract_facts_from_markdown(markdown, parsing_metadata=parsing_metadata)
+        extracted_facts = prepare_contract_facts_payload(
+            extracted_facts.model_dump(),
+            parsing_metadata=parsing_metadata,
+        )
         extraction_run = crud_document.get_extraction_run(db, extraction_run_id)
         if extraction_run is None:
             raise RuntimeError(f"Extraction run {extraction_run_id} not found")
@@ -157,7 +177,7 @@ def extract_document_facts(self, document_id: int, extraction_run_id: int, markd
             db,
             document_id=document_id,
             extraction_version=extraction_run.extraction_version,
-            schema_version=1,
+            schema_version=CURRENT_CONTRACT_FACTS_SCHEMA_VERSION,
             facts=extracted_facts.model_dump(),
         )
         crud_document.complete_extraction_run(db, extraction_run.id)
@@ -166,11 +186,19 @@ def extract_document_facts(self, document_id: int, extraction_run_id: int, markd
             document_id,
             extraction_run.extraction_version,
         )
+        extracted_facts_payload = extracted_facts.model_dump()
+        missing_required_fields = getattr(
+            extracted_facts,
+            "missing_required_fields",
+            extracted_facts_payload.get("missing_required_fields", []),
+        )
+
         if (
             document is not None
             and document.review_status == DocumentReviewStatus.PENDING_REVIEW
             and document.trusted_import
             and document.ingestion_source == IngestionSource.BULK_IMPORT
+            and has_complete_required_facts(extracted_facts_payload)
         ):
             approved_document = crud_document.approve_document(
                 db,
@@ -189,6 +217,13 @@ def extract_document_facts(self, document_id: int, extraction_run_id: int, markd
                 "document_auto_approved_from_trusted_import document_id=%s extraction_run_id=%s",
                 document.id,
                 extraction_run_id,
+            )
+        elif document is not None and missing_required_fields:
+            logger.info(
+                "document_fact_extraction_missing_required_fields document_id=%s extraction_run_id=%s missing=%s",
+                document.id,
+                extraction_run_id,
+                ",".join(missing_required_fields),
             )
         logger.info(
             "document_fact_extraction_completed task_id=%s document_id=%s extraction_run_id=%s",
@@ -262,6 +297,8 @@ def index_document(self, document_id: int):
         facts = crud_document.get_active_contract_facts(db, document.id)
         if facts is None:
             raise DocumentIndexingError("Document facts are missing for indexing")
+        if not is_contract_facts_indexable(facts.facts):
+            raise DocumentIndexingError("Document facts are incomplete or parser quality is too low for indexing")
 
         markdown_path = resolve_markdown_artifact_path(document.file_path)
         if not markdown_path.exists():
@@ -269,7 +306,8 @@ def index_document(self, document_id: int):
 
         crud_document.update_document_indexing_status(db, document.id, DocumentIndexingStatus.INDEXING)
         markdown = markdown_path.read_text(encoding="utf-8")
-        summary = generate_document_summary(markdown, facts.facts)
+        validated_facts = validate_contract_facts_payload(facts.facts)
+        summary = validated_facts.summary or generate_document_summary(markdown, facts.facts)
         chunks = split_markdown_into_chunks(markdown)
 
         vector_index = get_contract_vector_index()

@@ -40,6 +40,11 @@ class Settings(BaseSettings):
     MAX_UPLOAD_SIZE_BYTES: int = int(os.getenv("MAX_UPLOAD_SIZE_BYTES", str(20 * 1024 * 1024)))
     INDEXING_CHUNK_SIZE: int = int(os.getenv("INDEXING_CHUNK_SIZE", "1000"))
     INDEXING_CHUNK_OVERLAP: int = int(os.getenv("INDEXING_CHUNK_OVERLAP", "200"))
+    OCR_RENDER_SCALE: float = float(os.getenv("OCR_RENDER_SCALE", "2.0"))
+    PARSER_MIN_PAGE_TEXT_CHARS: int = int(os.getenv("PARSER_MIN_PAGE_TEXT_CHARS", "80"))
+    PARSER_MIN_PAGE_QUALITY_SCORE: float = float(os.getenv("PARSER_MIN_PAGE_QUALITY_SCORE", "0.32"))
+    PARSER_MIN_DOCUMENT_TEXT_CHARS: int = int(os.getenv("PARSER_MIN_DOCUMENT_TEXT_CHARS", "300"))
+    PARSER_MIN_DOCUMENT_QUALITY_SCORE: float = float(os.getenv("PARSER_MIN_DOCUMENT_QUALITY_SCORE", "0.35"))
 
     model_config = SettingsConfigDict(case_sensitive=True)
 
