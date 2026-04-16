@@ -27,3 +27,16 @@ dependencies = [
     "transformers>=4.0.0",
     "uvicorn>=0.22.0",
 ]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+    "pytest>=9.0.3",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+markers = [
+    "integration: обращается к реальному LM Studio по сети (см. .env)",
+]

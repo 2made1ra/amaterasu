@@ -103,8 +103,11 @@ def confirm_document(
             rag.save_to_vectorstore(docs, doc.id, doc.owner_id)
         except rag.RagDependencyError as exc:
             logger.warning("Skipping vector indexing due to missing RAG dependency: %s", exc)
-        except Exception as exc:
-            raise HTTPException(status_code=500, detail=f"Vector indexing failed: {exc}")
+        except Exception:
+            logger.exception(
+                "Vector indexing failed for document %s; document remains confirmed without RAG index.",
+                document_id,
+            )
 
     return doc
 
