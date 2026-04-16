@@ -1,19 +1,23 @@
 # Implementation Plan
 
 Owner: Engineering
-Verification: Draft
+Verification: aligned with current repo (periodic re-check recommended)
 Tags: backend, async, ingestion, rag
 
-**Status:** In Progress | **Audience:** Engineering Team, AI Agent, Migration Reviewers
+**Status:** Implemented (repository) | **Audience:** Engineering Team, AI Agent, Migration Reviewers
 
-Phase 1 foundation has been implemented in the repository:
+Phases 1-4 described in this document are implemented in the repository:
 
-- Alembic scaffolding and a phase-1 migration now exist under `backend/alembic/`
+- Alembic scaffolding and migrations exist under `backend/alembic/`
 - `documents`, `contract_facts`, and `extraction_runs` are represented in the model layer
-- `POST /documents/upload` now behaves as a lightweight upload endpoint
-- `GET /documents/{id}` now returns polling-friendly status data
+- `POST /documents/upload` is a lightweight upload endpoint; workers handle parsing and extraction
+- `GET /documents/{id}` returns polling-friendly status data
+- `POST /documents/{id}/confirm` updates facts, records approval metadata, and enqueues indexing
+- trusted bulk imports can auto-approve after fact validation
+- approved documents are indexed into split Qdrant summary and chunk collections
+- query orchestration (`query_router`, `sql_search`, `vector_search`, `search_orchestration`) backs `/api/v1/chat` and workspace flows
 
-The remaining sections of this document continue to describe the broader rollout plan for phases 2-4.
+Sections below retain phase-by-phase detail, historical baseline, and the agent workflow rules for future hardening or onboarding. Follow-up work (notifications, dashboard, production hardening) remains out of scope here; see [PLAN.md](../../PLAN.md) and separate plans.
 
 ## 1. Purpose
 
@@ -405,6 +409,8 @@ This document intentionally excludes:
 
 ### Phase 3. Approval, Trusted Bulk Auto-Approval, And Vector Layer
 
+Status: implemented in the repository
+
 **Goal:** make manual confirmation the default trust boundary, add a traceable trusted bulk auto-approval path, and index only approved documents.
 
 #### Phase 3.1. Confirmation API
@@ -560,6 +566,8 @@ This document intentionally excludes:
 - Re-indexing is safe.
 
 ### Phase 4. Query Orchestration
+
+Status: implemented in the repository
 
 **Goal:** connect PostgreSQL and Qdrant through an explicit router instead of a single generic retrieval path.
 

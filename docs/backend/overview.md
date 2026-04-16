@@ -5,6 +5,8 @@ The backend serves as the API, persistence layer, and workspace orchestration la
 * a persistent main workspace chat stored in chat sessions with saved explorer snapshots;
 * a temporary contract-scoped chat used inside the contract modal without writing to session history.
 
+It also now includes an asynchronous ingestion and approval pipeline for document parsing, fact extraction, manual confirmation, trusted bulk auto-approval, and vector indexing.
+
 ## Technologies Used
 
 * **FastAPI:** A modern, fast (high-performance) web framework for building APIs with Python 3.7+ based on standard Python type hints. It provides automatic interactive API documentation (Swagger UI and ReDoc).
@@ -12,19 +14,22 @@ The backend serves as the API, persistence layer, and workspace orchestration la
 * **SQLAlchemy:** The Python SQL toolkit and Object Relational Mapper (ORM) used to interact with the PostgreSQL database. It allows defining database schemas as Python classes.
 * **Alembic:** A lightweight database migration tool for usage with SQLAlchemy. It manages changes to the database schema over time.
 * **PostgreSQL:** The primary relational database used to store structured data like user accounts and metadata about uploaded documents.
+* **Celery + Redis:** Background task processing used for PDF parsing, fact extraction, approval handling, and indexing after upload.
 * **JWT (JSON Web Tokens):** Used for stateless authentication. The `python-jose` library is used to encode and decode tokens, while `passlib` handles password hashing (bcrypt).
 
 ## Architecture & Organization
 
 The backend code is organized following a standard full-stack FastAPI template structure:
 
-* **`app/api/`:** Contains the API routers and endpoints, including auth, documents, legacy chat, and workspace chat sessions.
+* **`app/api/`:** Contains the API routers and endpoints, including auth, documents, query-orchestrated chat, and workspace chat sessions.
 * **`app/core/`:** Contains core configuration settings (e.g., environment variables management via Pydantic) and security utilities.
 * **`app/crud/`:** Contains CRUD operations for documents, users, and persistent workspace sessions/messages.
 * **`app/db/`:** Database connection setup, session management, and Base classes for SQLAlchemy models.
 * **`app/models/`:** SQLAlchemy ORM models for users, documents, contract facts, extraction runs, chat sessions, and chat messages.
 * **`app/schemas/`:** Pydantic models used for data validation, serialization, and deserialization of API requests and responses.
-* **`app/services/`:** Contains business logic and integration code, including the RAG pipeline (`rag.py`), LLM integrations (`llm.py`), and workspace response shaping (`workspace.py`).
+* **`app/services/`:** Contains business logic and integration code, including query routing, SQL search, vector search, document indexing helpers, LLM integrations (`llm.py`), and workspace response shaping (`workspace.py`).
+* **`app/tasks/`:** Celery tasks for the document pipeline (`process_document`, `extract_document_facts`, `index_document`) plus a shared `LoggedTask` base for structured logging.
+* **`app/celery_app.py` and `app/worker.py`:** Celery application (broker, two queues: high-priority and bulk), autodiscovery of `app.tasks`, and the worker import surface used by `celery -A app.worker`.
 * **`main.py`:** The entry point of the FastAPI application.
 
 ## Persistent Workspace Entities
@@ -49,12 +54,17 @@ The backend now exposes separate flows for:
 * **Document management:** lightweight upload, status polling, confirm, list, preview, and temporary contract chat under `/documents`.
 * **Legacy chat endpoint:** `/chat` still exists, but the dashboard is built around `/chat-sessions`.
 
-The current document flow is intentionally phase-1 only:
+The current document flow includes background extraction and approval handling:
 
 * uploads save the file and create lifecycle rows in PostgreSQL;
-* document rows include review, processing, and indexing statuses plus optional batch metadata;
+* uploads enqueue async tasks into high-priority or bulk queues;
+* workers parse PDFs into Markdown artifacts and extract facts via LLM with schema validation;
+* document rows include review, processing, and indexing statuses plus optional batch metadata and approval audit fields;
+* manual confirmation can edit the active facts snapshot before indexing;
+* trusted bulk imports can auto-approve after fact validation and enqueue indexing without user intervention;
+* approved documents are indexed into separate Qdrant summary and chunk collections with idempotent delete-before-upsert behavior;
 * `GET /documents/{id}` supports frontend polling;
-* extraction and indexing are not performed inside the upload request cycle.
+* extraction, approval, indexing, and search orchestration are asynchronous or service-layer driven; chat now routes through explicit SQL and vector retrieval paths.
 
 ## Search Response Shaping
 
@@ -64,7 +74,7 @@ The current document flow is intentionally phase-1 only:
 * a normalized `result_tree` for the explorer;
 * basic `search_metadata`.
 
-The current implementation uses a flat contract list as the default grouping mode. This is the planned fallback until supplier-based grouping is available.
+The workspace response is now populated from the query orchestration layer rather than a single fallback RAG call. The result tree is still contract-oriented and may expand into richer grouping later.
 
 ## Detailed Layer Documentation
 
@@ -76,10 +86,11 @@ For a deep dive into each architectural layer, refer to the following documents:
 - [Models Layer (`app/models`)](./layers/models.md)
 - [Schemas Layer (`app/schemas`)](./layers/schemas.md)
 - [Services Layer (`app/services`)](./layers/services.md)
+- [Tasks Layer (`app/tasks`)](./layers/tasks.md)
 
 ## Core Processes & C4 Diagrams
 
 The key workflows within the backend have been documented with C4 PlantUML diagrams. Refer to the following documents to understand these workflows in detail:
 - [Authentication Flow](./processes/authentication.md)
 - [Document Upload & Human-in-the-Loop Review](./processes/document_upload.md)
-- [RAG Agent Chat & Search](./processes/rag_chat.md)
+- [Query Orchestration](./processes/rag_chat.md)

@@ -7,6 +7,8 @@ The Schemas layer defines Pydantic models. These models are used to validate inc
 - **`user.py`**: Schemas for user operations, such as `UserCreate` (input for registration), `UserResponse` (output format hiding the password), and `UserUpdate`.
 - **`document.py`**: Schemas for document upload responses, document list/detail responses, lifecycle statuses, and extracted-facts payloads used by `GET /documents/{id}`.
 - **`token.py`**: Schemas representing the JWT token payload and the response structure for authentication endpoints.
+- **`chat_session.py`**: Request/response models for listing sessions, creating sessions, sending workspace messages, and patching explorer snapshots.
+- **`batch.py`**: Response shape for aggregate bulk-ingestion progress (`GET /batches/{batch_id}`).
 
 ## Interactions
 - **Used by `api`**: Endpoints use schemas in their function signatures to automatically validate request bodies and format responses.

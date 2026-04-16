@@ -1,40 +1,47 @@
 # Backend Architecture & Foundations
 
-To build the backend of a full-stack AI application like Amaterasu, you need to understand how to expose services via an API, how to interact with a relational database, and how to secure those endpoints.
+To work on the backend of an app like Amaterasu, you need a clear picture of HTTP APIs, persistence, security, and where long-running work should live.
 
 ## 1. RESTful APIs
-**Theory:** REST (Representational State Transfer) is an architectural style for designing networked applications. It relies on a stateless, client-server protocol, usually HTTP. In a REST API, endpoints (URLs) represent resources (like a User or a Document), and standard HTTP methods define the actions:
-*   `GET`: Retrieve data.
-*   `POST`: Create new data.
-*   `PUT/PATCH`: Update existing data.
-*   `DELETE`: Remove data.
 
-**Project Application:** We use **FastAPI**, a modern Python web framework. FastAPI uses Python type hints to automatically validate data and generate documentation (Swagger UI).
-*   *Example:* When the frontend wants to upload a document, it sends an HTTP `POST` request to `/api/v1/documents/upload`. FastAPI catches this request, validates the incoming file, and triggers the logic to save it.
+**Theory:** REST (Representational State Transfer) is a common style for HTTP APIs: resources map to URLs, and verbs (`GET`, `POST`, `PATCH`, `DELETE`) express intent. Responses use standard status codes and JSON bodies.
+
+**In this project:** The app is built with **FastAPI**. Routes live under the **`/api/v1`** prefix (see `app/main.py` and `app/api/api_v1/`). Type hints and Pydantic models drive validation; Swagger UI is served at `/docs`.
+
+*Example:* `POST /api/v1/documents/upload` accepts a PDF, persists metadata, and enqueues background work—heavy parsing and LLM calls do not block the request thread.
 
 ## 2. Object-Relational Mapping (ORM)
-**Theory:** An ORM is a technique that lets you query and manipulate data from a database using an object-oriented paradigm. Instead of writing raw SQL queries (`SELECT * FROM users`), you work with Python classes and objects. This abstracts away the specific SQL dialect and makes code much easier to maintain.
 
-**Project Application:** We use **SQLAlchemy** combined with **PostgreSQL**.
-*   *Example:* We define a `User` class in Python that maps to a `users` table in the database. When we need to find a user, instead of `SELECT * FROM users WHERE email = 'x'`, we use SQLAlchemy syntax: `db.query(User).filter(User.email == email).first()`.
+**Theory:** An ORM maps tables to classes so you work with Python objects and expressions instead of hand-written SQL for most operations.
 
-## 3. JWT Authentication (Security)
-**Theory:** JSON Web Tokens (JWT) are a secure way to transmit information between parties as a JSON object. In modern web apps, they are the standard for stateless authentication.
-1. The user logs in with credentials.
-2. The server verifies them and generates a token (JWT) containing user info (like user ID) signed with a secret key.
-3. The client stores this token and sends it in the HTTP headers of subsequent requests (`Authorization: Bearer <token>`).
-4. The server validates the token's signature to ensure the user is authenticated.
+**In this project:** **SQLAlchemy 2.x** with **PostgreSQL**. Models live in `app/models/`; database access is concentrated in `app/crud/` (e.g. users, documents, chat sessions). **Alembic** owns schema changes—run `alembic upgrade head` instead of relying on automatic table creation at startup.
 
-**Project Application:** The Amaterasu backend has endpoints for login. Upon successful login, FastAPI generates a JWT. Any endpoint that requires security (like uploading a document) checks for a valid JWT before proceeding, ensuring only authenticated users can perform actions.
+## 3. JWT Authentication
 
-## 4. Layered Architecture (The "Clean" Approach)
-**Theory:** Putting all your code in one file is a recipe for disaster. Good backend design separates concerns into layers:
-*   **Routers/API Layer:** Handles incoming HTTP requests and returns HTTP responses.
-*   **Services Layer:** Contains the core business logic (e.g., the actual steps to process a document).
-*   **Data Access Layer (CRUD/DB):** Handles the direct database interactions using the ORM.
+**Theory:** The client sends `Authorization: Bearer <token>` after login; the server verifies the signature and reads claims (e.g. user id) without server-side session storage.
 
-**Project Application:** The `backend/app/` folder is structured exactly this way:
-*   `api/` contains the routing endpoints.
-*   `services/` contains logic for AI, document processing, etc.
-*   `crud/` handles the database queries.
-*   This means if we decide to change our database later, we only need to update the `crud/` layer, leaving the APIs and Services untouched.
+**In this project:** Login/register live under `/api/v1/auth`. Dependencies in `app/api/deps.py` resolve the current user for protected routes so uploads, documents, chat sessions, and batches stay scoped per user.
+
+## 4. Layered layout (`backend/app/`)
+
+**Theory:** Separating HTTP handlers, business logic, and data access keeps the codebase testable and easier to change.
+
+**In this project:**
+
+| Layer | Role |
+|--------|------|
+| `api/` | Routers and endpoint handlers (`auth`, `documents`, `batches`, `chat`, `chat-sessions`). |
+| `schemas/` | Pydantic request/response models. |
+| `services/` | Orchestration: query routing, SQL and vector search, PDF parsing, fact extraction, indexing helpers, workspace response shaping. |
+| `crud/` | Database operations (users, documents, chat sessions/messages, facts, extraction runs). |
+| `tasks/` | Celery tasks: `process_document`, `extract_document_facts`, `index_document`. |
+| `core/` | Settings (`pydantic-settings`) and password/JWT helpers. |
+| `db/` | Engine, session, declarative base. |
+
+Changing how a query is stored usually touches `crud/` and `models/`; changing how a question is answered often touches `services/` without rewriting routers.
+
+## 5. Asynchronous document pipeline
+
+**Theory:** File ingestion, PDF parsing, and LLM calls can take seconds or minutes. Running them inside the HTTP worker ties up workers and times out clients—so production systems offload this to **background workers** and a **message broker**.
+
+**In this project:** **Redis** backs **Celery**. Upload enqueues `process_document`; workers parse PDFs to Markdown, run **fact extraction** with an LLM, then (after human or trusted approval) **index** document summaries and text chunks into **Qdrant**. Two queues separate interactive uploads from bulk imports (`document-high-priority` vs `document-bulk`). Details: [Tasks layer](../backend/layers/tasks.md), [Document upload process](../backend/processes/document_upload.md).

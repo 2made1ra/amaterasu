@@ -1,39 +1,63 @@
-# RAG Agent Chat
+# Query Orchestration
 
-This document describes the Retrieval-Augmented Generation (RAG) process used by the chat agent.
+This document describes the current search orchestration used by the chat endpoints.
 
 ## Description
-When a user asks a question, the system uses a RAG approach. It first converts the query into a vector embedding, searches the vector database (Qdrant) for the most relevant document chunks, and then passes those chunks along with the user's query to a Large Language Model (LLM). The agent's goal is to return a summarized, coherent answer based strictly on the retrieved context, rather than just returning raw document chunks.
+The backend no longer sends every query through a single vector-search path. Instead, `app/services/query_router.py` classifies each request into one of five route types:
 
-## C4 Sequence Diagram
+* `SQL_ONLY`
+* `SUMMARY_ONLY`
+* `SUMMARY_THEN_CHUNKS`
+* `CHUNKS_ONLY`
+* `HYBRID_SQL_AND_CHUNKS`
 
-```plantuml
-@startuml
-!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Sequence.puml
+The router also extracts structured filters such as `year`, `supplier`, and ISO date ranges. The selected route then drives either PostgreSQL fact search, summary-first Qdrant search, chunk-scoped retrieval, or a hybrid SQL-plus-chunk answer.
 
-title RAG Chat and Search Flow
+The current `/api/v1/chat` and workspace chat flows both call the orchestration layer in `app/services/search_orchestration.py`. The legacy `rag.py` module still exists for backwards compatibility and reference, but it is no longer the primary chat path.
 
-Person(user, "User", "Client querying the agent")
-System_Boundary(backend, "Backend Application") {
-    Component(api, "Chat API", "FastAPI", "/api/v1/chat")
-    Component(rag_service, "RAG Service", "LangChain", "Orchestrates Retrieval & Generation")
-    Component(llm_service, "LLM Integration", "Python", "Calls OpenAI/LLM")
-    ContainerDb(vector_db, "Qdrant", "Vector DB", "Similarity Search")
-}
-System_Ext(llm_provider, "LLM Provider", "e.g., OpenAI")
+## Routing Summary
 
-Rel(user, api, "1. POST /chat (User Query)")
-Rel(api, rag_service, "2. Handle Query")
-Rel(rag_service, llm_service, "3. Embed User Query")
-Rel(llm_service, llm_provider, "4. Request Embedding")
-Rel(llm_provider, llm_service, "5. Return Vector")
-Rel(rag_service, vector_db, "6. Similarity Search (Vector)")
-Rel(vector_db, rag_service, "7. Return Relevant Chunks")
-Rel(rag_service, llm_service, "8. Generate Summary (Query + Chunks)")
-Rel(llm_service, llm_provider, "9. Request Completion (Prompt)")
-Rel(llm_provider, llm_service, "10. Return Summarized Answer")
-Rel(rag_service, api, "11. Return Final Response")
-Rel(api, user, "12. Return Summarized Answer JSON")
+* `SQL_ONLY`: used for list, report, and structured reporting queries.
+* `SUMMARY_ONLY`: used for discovery and broad topic-search queries.
+* `SUMMARY_THEN_CHUNKS`: used for explanation-style questions that need document discovery first and evidence second.
+* `CHUNKS_ONLY`: used for contract-scoped or exact-passage queries.
+* `HYBRID_SQL_AND_CHUNKS`: used when a query mixes structured constraints with explanatory intent.
 
-@enduml
+## Flow Diagram
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant API as Chat API
+    participant Router as Query Router
+    participant SQL as SQL Search
+    participant Vector as Qdrant Search
+    participant DB as PostgreSQL
+
+    User->>API: POST /api/v1/chat
+    API->>Router: Classify query + extract filters
+    alt SQL_ONLY
+        Router->>SQL: Search contract_facts with filters
+        SQL->>DB: Read approved document facts
+        DB-->>SQL: Matching rows
+        SQL-->>API: Structured answer
+    else SUMMARY_ONLY
+        Router->>Vector: Search contract_summaries
+        Vector-->>API: Ranked document summaries
+    else SUMMARY_THEN_CHUNKS
+        Router->>Vector: Search contract_summaries
+        Vector-->>API: Top documents
+        API->>Vector: Search contract_chunks with top-3 document filter
+        Vector-->>API: Evidence snippets
+    else CHUNKS_ONLY
+        Router->>Vector: Search contract_chunks with document filter
+        Vector-->>API: Evidence snippets
+    else HYBRID_SQL_AND_CHUNKS
+        Router->>SQL: Search contract_facts with filters
+        SQL->>DB: Read structured matches
+        DB-->>SQL: Matching rows
+        API->>Vector: Search contract_chunks within matched documents
+        Vector-->>API: Evidence snippets
+    end
+    API-->>User: Answer JSON
 ```

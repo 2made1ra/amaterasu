@@ -1,29 +1,26 @@
 # Building Amaterasu: The Learning Guide
 
-Welcome to the Amaterasu Learning Guide! This guide is designed to help you understand the theoretical foundations and practical applications required to build a full-stack AI RAG (Retrieval-Augmented Generation) project from scratch, without the assistance of an AI agent.
+Welcome to the Amaterasu Learning Guide. It explains the ideas behind a full-stack AI assistant with document ingestion, human review, and query-routed search—aligned with how the repository is structured today.
 
-To recreate a project like Amaterasu, you need a solid understanding of modern web application architecture, broken down into several key layers. Rather than overwhelming you with endless documentation, this guide applies the Pareto principle (80/20 rule), focusing on the core concepts that drive the majority of the application's functionality.
+The guide follows the Pareto principle (80/20): enough theory to understand the system, plus pointers to where behavior is implemented in code and in the main `docs/` tree.
 
-## Core Concepts to Understand
+## Core pillars
 
-Building this project requires integrating four major components:
+Building this project means wiring four areas together:
 
-1. **The Backend (API & Business Logic):** How to create a robust server that handles requests, manages a database, and secures user data.
-2. **The Frontend (User Interface):** How to build a responsive Single Page Application (SPA) that interacts seamlessly with your backend API.
-3. **The AI Agent & RAG Pipeline:** How to process documents, convert them into a machine-readable format, and use an LLM to answer questions based on that specific context.
-4. **The Infrastructure:** How to package all these separate moving parts into isolated containers that can easily communicate and run consistently on any machine.
+1. **Backend (API & persistence):** FastAPI, PostgreSQL, JWT, Alembic migrations, and an asynchronous document pipeline (Celery + Redis) for parsing, fact extraction, and vector indexing.
+2. **Frontend (SPA):** A Svelte + Vite + Tailwind SPA that talks to `/api/v1`, keeps auth tokens, and uses a small client-side router built on the History API.
+3. **AI & retrieval:** Not only classic “chunk RAG”: structured facts in PostgreSQL, dual Qdrant collections (summaries and chunks), and **query orchestration** that routes questions to SQL reporting, vector search, or hybrid paths before the LLM answers.
+4. **Infrastructure:** Docker Compose for PostgreSQL, Qdrant, and Redis; the API and workers usually run on the host via `uv` (see [Backend Setup](../backend/setup.md)).
 
-## Guide Contents
+## Guide contents
 
-We have broken down the learning material into focused sub-documents. Each document covers the essential theory, followed by concrete examples of how that theory is applied in the Amaterasu project.
+| Guide | Topics |
+|--------|--------|
+| [**Backend Architecture & Foundations**](backend.md) | REST, FastAPI layers, JWT, Alembic, Celery/Redis pipeline, project layout under `backend/app/`. |
+| [**Frontend SPA Foundations**](frontend.md) | SPA model, Svelte 5, Vite, Tailwind, Axios + JWT, client-side routing. |
+| [**AI & RAG Mechanics**](agent_rag.md) | RAG concept, ingestion vs chat paths, Qdrant collections, query orchestration, where LangChain appears today. |
+| [**Infrastructure & Orchestration**](infrastructure.md) | Docker, Compose services (`db`, `qdrant`, `redis`), volumes, how that fits local development. |
+| [**LM Studio**](lmstudio_setup.md) | OpenAI-compatible local server, env vars (`LLM_PROVIDER`, `EMBEDDINGS_PROVIDER`, `LMSTUDIO_API_*`). |
 
-*   [**Backend Architecture & Foundations**](backend.md)
-    *   REST APIs, FastAPI, ORMs (SQLAlchemy), and JWT Authentication.
-*   [**Frontend SPA Foundations**](frontend.md)
-    *   Single Page Applications, Svelte, Component state, and Client-Side Routing.
-*   [**AI & RAG Mechanics**](agent_rag.md)
-    *   Retrieval-Augmented Generation (RAG), Vector Embeddings, Qdrant, and LangChain orchestration.
-*   [**Infrastructure & Orchestration**](infrastructure.md)
-    *   Containerization with Docker and multi-container setups with Docker Compose.
-
-By progressing through these guides step by step, you will build the mental model required to architect and implement your own full-stack AI assistant from the ground up.
+For operational steps (env vars, workers, migrations), prefer [Backend Setup](../backend/setup.md) and [Agent Setup](../agent/setup.md).

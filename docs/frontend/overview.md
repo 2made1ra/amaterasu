@@ -38,6 +38,6 @@ The UI is split into the following components:
 Document import is no longer the primary left panel. The upload UI now lives inside the workspace toolbar via [frontend/src/components/DocumentUpload.svelte](/Users/2madeira/DEV/PROJECTS/amaterasu/frontend/src/components/DocumentUpload.svelte), which:
 
 * uploads a PDF;
-* runs the current confirmation shell used by the phase-1 backend;
+* reflects asynchronous lifecycle states from the backend (`QUEUED`, `PARSING`, `FACTS_READY`, `APPROVED`, `INDEXING`, `INDEXED`, `FAILED`);
 * shows the current document library;
 * emits `documentsChanged` so the dashboard can refresh library counts in the toolbar.

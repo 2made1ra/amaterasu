@@ -1,9 +1,24 @@
-version: '3.8'
+# Инфраструктура + backend: API и два Celery-воркера (очереди из app/core/config.py).
+# Сеть: сервисные имена db, qdrant, redis — не localhost.
+
+x-backend-env: &backend-env
+  DATABASE_URL: postgresql://user:password@db:5432/app_db
+  QDRANT_HOST: qdrant
+  QDRANT_PORT: "6333"
+  REDIS_URL: redis://redis:6379/0
+  # JWT и прочее; для продакшена задайте SECRET_KEY в .env или окружении хоста
+  SECRET_KEY: ${SECRET_KEY:-dev-secret-change-in-production}
+  UPLOAD_DIR: /app/uploads
+  PARSED_MARKDOWN_DIR: /app/artifacts/markdown
+
+x-backend-volumes: &backend-volumes
+  - uploads_data:/app/uploads
+  - parsed_markdown_data:/app/artifacts/markdown
 
 services:
   db:
     image: postgres:15
-    restart: always
+    restart: unless-stopped
     environment:
       POSTGRES_USER: user
       POSTGRES_PASSWORD: password
@@ -12,10 +27,15 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d app_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   qdrant:
     image: qdrant/qdrant:latest
-    restart: always
+    restart: unless-stopped
     ports:
       - "6333:6333"
       - "6334:6334"
@@ -24,10 +44,104 @@ services:
 
   redis:
     image: redis:7-alpine
-    restart: always
+    restart: unless-stopped
     ports:
       - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: amaterasu-backend:latest
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      <<: *backend-env
+    volumes: *backend-volumes
+    extra_hosts:
+      # LM Studio на хосте: задайте LLM_PROVIDER=lmstudio и LMSTUDIO_API_BASE=http://host.docker.internal:1234/v1
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+    command:
+      - /bin/sh
+      - -c
+      - |
+        set -e
+        uv run alembic upgrade head
+        exec uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
+
+  celery-worker-high:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: amaterasu-backend:latest
+    restart: unless-stopped
+    environment:
+      <<: *backend-env
+    volumes: *backend-volumes
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+    command:
+      - uv
+      - run
+      - celery
+      - -A
+      - app.worker
+      - worker
+      - -Q
+      - document-high-priority
+      - --loglevel=info
+
+  celery-worker-bulk:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: amaterasu-backend:latest
+    restart: unless-stopped
+    environment:
+      <<: *backend-env
+    volumes: *backend-volumes
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+    command:
+      - uv
+      - run
+      - celery
+      - -A
+      - app.worker
+      - worker
+      - -Q
+      - document-bulk
+      - --loglevel=info
 
 volumes:
   postgres_data:
   qdrant_data:
+  uploads_data:
+  parsed_markdown_data:

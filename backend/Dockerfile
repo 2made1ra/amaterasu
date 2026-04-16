@@ -17,6 +17,8 @@ RUN uv sync --frozen --no-install-project
 
 # Copy the rest of the application
 COPY app ./app
+COPY alembic.ini ./
+COPY alembic ./alembic
 
 # Expose the application port
 EXPOSE 8000

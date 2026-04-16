@@ -1,62 +1,63 @@
 # Using LM Studio with Amaterasu
 
-This guide explains how to configure the Amaterasu project to use local models via [LM Studio](https://lmstudio.ai/). This allows you to run powerful models like Gemma or Qwen entirely on your own hardware, ensuring data privacy and reducing dependency on external APIs or heavy local transformers pipelines within the backend process itself.
+This guide explains how to point the Amaterasu backend at [LM Studio](https://lmstudio.ai/)’s **OpenAI-compatible** HTTP API so chat and/or embeddings can run in LM Studio instead of loading Hugging Face models inside the Python process.
 
 ## Why use LM Studio?
 
-1.  **Offloading Compute**: LM Studio runs in a separate process, often utilizing GPU acceleration more efficiently than a generic Python environment.
-2.  **Model Variety**: Easily swap between different models (Gemma, Qwen, Llama 3, etc.) without changing code.
-3.  **OpenAI Compatibility**: LM Studio provides an API that mimics OpenAI, making integration straightforward.
+1. **Separate process** — Often better GPU utilization and simpler model switching than embedding large transformers directly in the API worker.
+2. **Model choice** — Swap models in LM Studio without changing application code beyond env vars.
+3. **OpenAI-compatible API** — The backend uses `langchain_openai` clients with `base_url` pointed at LM Studio (`app/services/llm.py`).
 
 ## Prerequisites
 
-- [LM Studio](https://lmstudio.ai/) installed and running.
-- Amaterasu backend environment set up.
+- LM Studio installed; a model downloaded; **local server** started.
+- Backend dependencies installed (`uv sync` in `backend/`).
 
-## Step 1: Set up LM Studio
+## Step 1: Start LM Studio server
 
-1.  **Download a Model**: Open LM Studio and search for a model you want to use (e.g., `gemma-2b` or `qwen`).
-2.  **Start the Local Server**:
-    - Click on the **Local Server** icon (the double-headed arrow/hosting icon on the left sidebar).
-    - Select your downloaded model from the dropdown at the top.
-    - Click **Start Server**.
-    - Note the **Server Port** (default is usually `1234`).
-    - Note the **Base URL** (usually `http://localhost:1234/v1`).
+1. Open LM Studio → **Local Server** (sidebar).
+2. Pick a model and click **Start Server**.
+3. Note the **Base URL** (commonly `http://localhost:1234/v1`) and port.
 
-## Step 2: Configure Amaterasu
+## Step 2: Environment variables
 
-The project uses environment variables to determine which LLM provider and model to use. You can set these in your `.env` file or export them in your terminal.
+Configure the process environment (shell, IDE, or deployment). Settings are read in `app/core/config.py`; the API does not auto-load `.env` on startup (tests load `.env` via pytest).
 
-### Configuration for LLM (Text Generation)
-
-To use LM Studio for the main AI Agent:
+### LLM (text generation)
 
 ```env
 LLM_PROVIDER=lmstudio
-LLM_MODEL=your-model-identifier  # The name shown in LM Studio
+LLM_MODEL=<model-id-as-shown-in-LM-Studio>
 LMSTUDIO_API_BASE=http://localhost:1234/v1
+LMSTUDIO_API_KEY=not-needed
 ```
 
-### Configuration for Embeddings
+`LMSTUDIO_API_KEY` defaults to a placeholder; set a real value if your server requires it.
 
-You can also use LM Studio for generating embeddings if the model you loaded supports it (though dedicated embedding models like `all-MiniLM-L6-v2` via HuggingFace are often faster and more specialized).
+### Embeddings (optional)
+
+You can keep **Hugging Face** embeddings (default) and only use LM Studio for the LLM—often a good balance.
+
+To route embeddings through LM Studio (if your loaded model supports embedding endpoints):
 
 ```env
 EMBEDDINGS_PROVIDER=lmstudio
-EMBEDDINGS_MODEL=your-embedding-model-identifier
+EMBEDDINGS_MODEL=<embedding-model-id>
 LMSTUDIO_API_BASE=http://localhost:1234/v1
 ```
 
-*Note: If you want to keep using local HuggingFace embeddings while using LM Studio for the LLM, simply leave `EMBEDDINGS_PROVIDER=huggingface` (the default).*
+Leave `EMBEDDINGS_PROVIDER` unset or `huggingface` to use **sentence-transformers** locally for vectors.
 
-## Step 3: Verify the Setup
+## Step 3: Verify
 
-1.  Restart your Amaterasu backend.
-2.  Observe the logs. You should no longer see the HuggingFace model download/loading messages if you switched to `lmstudio`.
-3.  Interact with the Chat in the frontend. You should see requests appearing in the LM Studio "Logs" section.
+1. Restart the FastAPI process after changing env vars.
+2. Trigger a flow that calls the LLM (e.g. fact extraction or chat). LM Studio’s log view should show incoming requests.
+3. If you still see Hugging Face download logs for the **LLM**, check that `LLM_PROVIDER=lmstudio` is actually visible to the running process (`print(settings.LLM_PROVIDER)` in a pinch).
 
 ## Troubleshooting
 
--   **Connection Refused**: Ensure the LM Studio server is actually started and the port matches `LMSTUDIO_API_BASE`.
--   **Model Not Found**: Ensure `LLM_MODEL` matches the identifier expected by LM Studio (though often LM Studio accepts any string if only one model is loaded).
--   **Performance**: If the response is slow, check if LM Studio is utilizing your GPU (Hardware Acceleration settings in LM Studio).
+- **Connection refused** — Server not started or wrong port; `LMSTUDIO_API_BASE` must match LM Studio (including `/v1` if required).
+- **Wrong model** — `LLM_MODEL` / `EMBEDDINGS_MODEL` should match what LM Studio expects for the loaded stack.
+- **Slow responses** — Confirm GPU acceleration in LM Studio; reduce model size or concurrency.
+
+For broader LLM/Qdrant configuration, see [Agent Setup](../agent/setup.md) and [Backend Setup](../backend/setup.md).

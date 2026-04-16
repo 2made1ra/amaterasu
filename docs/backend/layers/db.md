@@ -13,10 +13,10 @@ The Database layer is responsible for managing the connection to the underlying 
 Schema creation is migration-driven.
 
 * Alembic configuration lives under `backend/alembic.ini` and `backend/alembic/`.
-* The current phase-1 migration creates the `documents`, `contract_facts`, and `extraction_runs` tables and prepares the schema for controlled bulk ingestion.
+* The current foundation migration creates the `documents`, `contract_facts`, and `extraction_runs` tables and prepares the schema for controlled bulk ingestion.
 * The application entrypoint no longer calls `Base.metadata.create_all(...)`.
 
 ## Interactions
-- **Consumes from `core`**: Uses the configuration settings (like `DATABASE_URL`) from `core/config.py` to connect to the database.
+- **Consumes from `core`**: Uses configuration settings (like `DATABASE_URL`) from `core/config.py` to connect to PostgreSQL.
 - **Used by `models`**: SQLAlchemy models inherit from the `Base` class defined here.
 - **Used by `api` (via `deps.py`)**: Provides database sessions to API endpoints on a per-request basis.

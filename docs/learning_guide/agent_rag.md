@@ -1,33 +1,49 @@
 # AI & RAG Mechanics
 
-The core value of Amaterasu is its ability to "read" user-uploaded documents and answer questions about them. This is achieved through a pattern called Retrieval-Augmented Generation (RAG).
+Amaterasu answers questions in the context of **user-uploaded contracts**. The implementation combines **structured extraction**, **relational reporting**, **vector search**, and **LLM generation**—not a single generic “load PDF → chunk → one vector chain” for every answer.
 
-## 1. Large Language Models (LLMs) & Their Limits
-**Theory:** LLMs (like GPT-4) are powerful autocomplete engines trained on vast amounts of public internet data. However, they have two major flaws for enterprise use:
-1.  **Knowledge Cutoff:** They don't know anything that happened after their training date.
-2.  **Private Data:** They do not know about *your* specific, private company documents.
+## 1. Why not “just ask the LLM”?
 
-If you ask an LLM about your company's internal HR policy, it will either hallucinate (make up an answer) or say it doesn't know.
+**Theory:** General LLMs do not know your private PDFs and may **hallucinate** if asked without grounded context.
 
-## 2. Retrieval-Augmented Generation (RAG)
-**Theory:** RAG solves the LLM knowledge problem. Instead of relying on the LLM's internal memory, we provide it with an external brain (your documents). The flow works like this:
-1.  **Retrieve:** When a user asks a question, the system searches the uploaded documents for relevant text snippets.
-2.  **Augment:** The system takes the user's question AND the relevant text snippets and combines them into a single prompt.
-3.  **Generate:** The prompt is sent to the LLM. The LLM reads the snippets and *generates* an answer based strictly on that provided context.
+**In this project:** Grounding comes from (a) **validated facts** stored in PostgreSQL, (b) **retrieved passages** from Qdrant after approval, and (c) optional SQL-style reporting over `contract_facts` for quantitative questions. The LLM is invoked where the chosen route needs generation or synthesis—not as the only retrieval mechanism.
 
-**Project Application:** When a user asks "What is our supplier policy?" in Amaterasu, the backend doesn't just ask the LLM. It searches the database, finds the document paragraphs about supplier policy, and sends a prompt to the LLM: *"Based on these paragraphs [Paragraphs], answer the question: What is our supplier policy?"* Furthermore, Amaterasu is instructed to *summarize* these findings rather than just returning raw document chunks.
+## 2. Retrieval-Augmented Generation (RAG) — concept
 
-## 3. Vector Embeddings and Vector Databases
-**Theory:** How do we search documents for "relevant text snippets"? Traditional keyword search fails if the user asks about "vacation" but the document uses the word "PTO".
-*   **Embeddings:** We use a special AI model to convert text into arrays of numbers (vectors). Text with similar *meaning* will have vectors that are mathematically close together in space.
-*   **Vector Database:** A specialized database designed to store and quickly search these vectors. You provide a question, it converts the question to a vector, and finds the document vectors that are mathematically closest to it.
+**Theory:** **Retrieve** relevant content, **augment** the prompt with that content, then **generate** an answer. That reduces reliance on the model’s parametric memory.
 
-**Project Application:**
-*   Amaterasu uses **Qdrant** as its vector database.
-*   When a document is uploaded, it is split into chunks. Each chunk is passed through an embedding model (managed via **LangChain**) to create a vector. These vectors are saved in Qdrant.
-*   When a user asks a question, the question is embedded, Qdrant searches for similar vectors, and returns the original text chunks for the Augment step of RAG.
+**In this project:** “Retrieve” is split across systems: sometimes **vector similarity** in Qdrant (summaries or chunks), sometimes **filtered SQL** over extracted JSON facts, sometimes **both** orchestrated by `search_orchestration`. The legacy module `app/services/rag.py` illustrates a classic LangChain RetrievalQA-style path; **current chat and workspace flows** use [query orchestration](../backend/processes/rag_chat.md) instead.
 
-## 4. Orchestration with LangChain
-**Theory:** Building a RAG pipeline requires gluing together many parts: loading documents, splitting text, calling embedding APIs, querying vector databases, constructing prompts, and calling LLM APIs. LangChain is a framework that provides pre-built tools and abstractions for all these steps.
+## 3. Ingestion: from PDF to searchable vectors
 
-**Project Application:** The Amaterasu backend relies heavily on LangChain. It uses LangChain's document loaders to parse PDFs/Text, text splitters to chunk the data, integration with Qdrant for vector storage, and chain abstractions to seamlessly pass the retrieved context into the final LLM prompt.
+**Theory:** Raw files must become text, structured data, and vectors before search works well.
+
+**In this project (high level):**
+
+1. **Upload** stores the PDF and creates document rows in PostgreSQL.
+2. **Celery** runs **`process_document`**: PDF → Markdown artifact.
+3. **`extract_document_facts`** calls the LLM with schema validation; results land in **`contract_facts`** (versioned).
+4. **Human-in-the-loop** (or **trusted bulk** auto-approval when allowed) gates the next step.
+5. **`index_document`** builds a **document summary** and **text chunks**, embeds them, and upserts into **two Qdrant collections** (summary vs chunk) with idempotent delete-before-upsert.
+
+Embeddings are created via `app/services/llm.py` (**Hugging Face** locally by default, or **LM Studio** when `EMBEDDINGS_PROVIDER=lmstudio`). Chunking for indexing uses **LangChain’s `RecursiveCharacterTextSplitter`** in `document_indexing.py`.
+
+## 4. Vector embeddings and Qdrant
+
+**Theory:** Embeddings map text to vectors; **nearest-neighbor search** finds semantically similar passages.
+
+**In this project:** **Qdrant** stores vectors for **approved** documents only. Separate collections (configured via env, defaults `contract_summaries` and `contract_chunks`) let the system search at **document summary** level or **fine-grained chunk** level. Payloads include ownership fields so retrieval stays tenant-scoped.
+
+## 5. Query orchestration (chat and workspace)
+
+**Theory:** User questions vary: some need aggregation or filters (**“how many…”**), others need narrative grounding (**“what does clause X say?”**). One retrieval strategy rarely fits all.
+
+**In this project:** **`query_router`** classifies the question. **`sql_search`** runs over extracted facts where appropriate; **`vector_search`** hits Qdrant for summary- or chunk-first retrieval; **`search_orchestration`** combines routes and hands results to **`workspace`** shaping for the main UI. Endpoints: `/api/v1/chat`, `/api/v1/chat-sessions/...`, and contract-scoped `/api/v1/documents/{id}/chat`.
+
+See [Agent overview](../agent/overview.md) and [RAG flow](../agent/rag_flow.md) for diagrams and step-by-step detail.
+
+## 6. Where LangChain appears
+
+**Theory:** LangChain bundles loaders, splitters, vector store adapters, and chains.
+
+**In this project:** LangChain is used **selectively**: HF/OpenAI-compatible wrappers in **`llm.py`**, text splitting in **`document_indexing.py`**, and the **legacy `rag.py`** path with Qdrant vectorstore + RetrievalQA. The **primary** production paths for chat are **orchestration services**, not a single global LangChain chain.

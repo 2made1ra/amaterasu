@@ -1,6 +1,6 @@
-# The RAG Pipeline Flow
+# The Query Orchestration Flow
 
-This document describes the current boundary between the phase-1 ingestion foundation and the existing RAG service in `backend/app/services/rag.py`.
+This document describes the boundary between the ingestion/approval/indexing pipeline and the current search orchestration layer.
 
 ## 1. Current Upload Boundary
 
@@ -11,21 +11,21 @@ The current request flow is:
 1. validate the uploaded PDF;
 2. save the file to local storage;
 3. create a `documents` row with lifecycle fields such as `review_status`, `processing_status`, and `indexing_status`;
-4. return immediately with a document id and initial statuses;
-5. log a placeholder asynchronous dispatch event.
+4. enqueue `process_document` on Celery (`document-high-priority` or `document-bulk`);
+5. return immediately with a document id and initial statuses.
 
-This means the upload endpoint does not currently call:
+This means the upload endpoint itself does not call:
 
 * `PyPDFLoader`;
 * text splitting;
 * metadata extraction prompts;
 * Qdrant writes.
 
-Those steps are planned to move into a background ingestion pipeline.
+Those heavy steps are now shifted to background worker execution for parsing and fact extraction.
 
 ## 2. Current Data Preparation Layer
 
-The backend foundation now includes PostgreSQL tables intended for the future ingestion pipeline:
+The backend foundation now includes PostgreSQL tables intended for the ingestion and approval pipeline:
 
 * `documents`: file metadata, ownership, lifecycle statuses, active extraction version, last error, and batch-ingestion fields;
 * `contract_facts`: extracted JSON facts keyed by document and extraction version;
@@ -33,20 +33,30 @@ The backend foundation now includes PostgreSQL tables intended for the future in
 
 `GET /documents/{id}` reads this data so the frontend can poll document state and extracted facts.
 
+`GET /batches/{batch_id}` now provides aggregate counters for controlled bulk ingestion progress.
+
+Approved documents also carry audit metadata on the `documents` row itself:
+
+* `approval_source` distinguishes manual approval from trusted bulk auto-approval;
+* `approved_at` captures when the decision was made;
+* `approved_by_user_id` captures the reviewer when manual confirmation is used.
+
 ## 3. Existing Querying Path
 
-The project still contains an existing vector-search path in `app/services/rag.py`. When it is used:
+The current search path is routed through `app/services/search_orchestration.py`. When it is used:
 
-1. **Filtering (Tenant Isolation):** `query_rag` receives the query, the `owner_id`, and an optional `document_id`. It constructs a Qdrant filter that must match `metadata.owner_id` and may match `metadata.document_id`.
-2. **Retrieval:** The query is embedded and matched against stored vectors in Qdrant.
-3. **Prompt Construction:** Retrieved chunks plus the user question are inserted into a prompt template.
-4. **Generation:** The LLM generates an answer using the retrieved context.
-5. **Response:** The backend returns the generated answer as plain text.
+1. **Classification:** `query_router.py` classifies the query into one of the explicit route types and extracts structured filters.
+2. **SQL path:** `sql_search.py` builds a SQLAlchemy query against `contract_facts` for reporting-style questions.
+3. **Summary-first vector path:** `vector_search.py` searches `contract_summaries` first, then searches `contract_chunks` within the shortlisted document ids.
+4. **Contract-scoped narrowing:** if a `document_id` is provided, the query is constrained to that context.
+5. **Response shaping:** `workspace.py` turns the result into the assistant message and explorer payload.
 
 ## 4. Important Note
 
-The vector-search service and the upload lifecycle are currently in a transitional state:
+The legacy `app/services/rag.py` file still exists, but the chat endpoints now use the query orchestration layer instead of relying on that single path.
 
-* query-time RAG code still exists;
-* phase-1 upload no longer feeds that index synchronously;
-* the target architecture is to reintroduce extraction and indexing through background workers instead of HTTP request handling.
+The pipeline is now split cleanly:
+
+* uploads run asynchronous parsing and fact extraction;
+* approved uploads trigger idempotent indexing into separate summary and chunk collections;
+* chat uses explicit query routing instead of sending everything through one generic vector search.

@@ -95,6 +95,55 @@ This document provides a comprehensive list of technical terms and business conc
 *   **RU:** Четыре базовые функции работы с данными: создание, чтение, обновление, удаление.
 *   *See:* [Backend Overview](backend/overview.md)
 
+### Celery
+*   **EN:** A distributed task queue used here to run the document pipeline outside HTTP requests: PDF parsing, LLM fact extraction, and Qdrant indexing, with separate queues for interactive uploads and bulk traffic.
+*   **RU:** Распределённая очередь задач; в проекте выполняет пайплайн документов вне HTTP: разбор PDF, извлечение фактов через LLM и индексация в Qdrant, с раздельными очередями для интерактивных загрузок и массового импорта.
+*   *See:* [Tasks Layer](backend/layers/tasks.md), [Backend Setup](backend/setup.md)
+
+### uv
+*   **EN:** A fast Python package and project manager used to sync dependencies (`uv sync`), run the API (`uv run uvicorn`), workers, Alembic, and tests.
+*   **RU:** Быстрый менеджер пакетов и проектов Python; в репозитории используется для установки зависимостей (`uv sync`), запуска API, воркеров, Alembic и тестов.
+*   *See:* [Backend Setup](backend/setup.md)
+
+---
+
+## 📄 Document pipeline & workspace / Пайплайн документов и рабочее пространство
+
+### Extraction run / Прогон извлечения
+*   **EN:** A database record for one attempt to parse a document and extract structured facts, including status, version, timestamps, and error details when processing fails.
+*   **RU:** Запись в БД об одной попытке разобрать документ и извлечь структурированные факты: статус, версия, метки времени и детали ошибки при сбое.
+*   *See:* [Models Layer](backend/layers/models.md), [Document Upload](backend/processes/document_upload.md)
+
+### Contract facts / Факты договора
+*   **EN:** Structured JSON extracted from contract PDFs (per document and extraction version), validated after LLM output; forms the basis for review, approval, SQL reporting, and indexing into Qdrant.
+*   **RU:** Структурированный JSON, извлечённый из PDF договоров (на документ и версию извлечения), с валидацией после ответа LLM; основа для ревью, утверждения, SQL-отчётов и индексации в Qdrant.
+*   *See:* [Document Upload](backend/processes/document_upload.md), [Services Layer](backend/layers/services.md)
+
+### Bulk ingestion (controlled) / Массовый импорт (контролируемый)
+*   **EN:** A CLI-driven flow that uploads many PDFs via the same `POST /documents/upload` contract, assigns `batch_id` metadata, uses the bulk queue, and can mark imports as trusted for auto-approval when policy allows.
+*   **RU:** Сценарий через CLI: загрузка множества PDF тем же контрактом `POST /documents/upload`, с метаданными `batch_id`, очередью bulk и опцией доверенного импорта для автоутверждения при допустимых правилах.
+*   *See:* [Backend Setup](backend/setup.md), [API Endpoints](api/endpoints.md)
+
+### Ingestion batch / Партия импорта
+*   **EN:** A logical grouping of uploads sharing a `batch_id`, used to track aggregate progress (processing, review, indexing) via `GET /batches/{batch_id}`.
+*   **RU:** Логическая группа загрузок с общим `batch_id` для отслеживания агрегированного прогресса (обработка, ревью, индексация) через `GET /batches/{batch_id}`.
+*   *See:* [API Endpoints](api/endpoints.md)
+
+### Trusted import / Доверенный импорт
+*   **EN:** A flag on upload indicating that, after successful fact validation, the pipeline may auto-approve and enqueue indexing without manual confirmation (typically for controlled bulk sources).
+*   **RU:** Флаг загрузки: при успешной валидации фактов пайплайн может автоматически утвердить документ и поставить индексацию в очередь без ручного подтверждения (обычно для контролируемых массовых источников).
+*   *See:* [Document Upload](backend/processes/document_upload.md)
+
+### Main workspace chat (chat session) / Чат основного рабочего пространства
+*   **EN:** Persistent multi-turn chat tied to `chat_sessions` and `chat_messages`, including an explorer snapshot (result tree, selection, view mode) saved in PostgreSQL; distinct from temporary contract-modal chat.
+*   **RU:** Персистентный многоходовой чат, привязанный к `chat_sessions` и `chat_messages`, со снимком проводника (дерево результатов, выбор, режим просмотра) в PostgreSQL; отличается от временного чата в модалке договора.
+*   *See:* [Backend Overview](backend/overview.md), [API Endpoints](api/endpoints.md)
+
+### Contract-scoped chat / Чат в контексте договора
+*   **EN:** A temporary query flow under `POST /documents/{id}/chat` inside the contract UI; not stored in session history and constrained to the selected document context.
+*   **RU:** Временный запрос через `POST /documents/{id}/chat` в UI договора; не сохраняется в истории сессий и ограничен контекстом выбранного документа.
+*   *See:* [API Endpoints](api/endpoints.md), [Query Orchestration](backend/processes/rag_chat.md)
+
 ---
 
 ## 🤖 AI & RAG / ИИ и RAG
@@ -115,9 +164,9 @@ This document provides a comprehensive list of technical terms and business conc
 *   *See:* [Agent Overview](agent/overview.md)
 
 ### Qdrant
-*   **EN:** A high-performance vector similarity search engine and database used in this project.
-*   **RU:** Высокопроизводительный движок поиска векторного сходства и база данных, используемые в данном проекте.
-*   *See:* [Architecture Overview](architecture/overview.md)
+*   **EN:** A high-performance vector similarity search engine used here with separate collections for document-level summaries and smaller text chunks, with idempotent delete-before-upsert indexing after approval.
+*   **RU:** Высокопроизводительный движок векторного поиска; в проекте используются отдельные коллекции для сводок по документу и для фрагментов текста, с идемпотентной индексацией (удаление перед upsert) после утверждения.
+*   *See:* [Architecture Overview](architecture/overview.md), [Agent Overview](agent/overview.md)
 
 ### Embeddings / Эмбеддинги (Векторные представления)
 *   **EN:** Mathematical representations of text in a high-dimensional space, where semantically similar items are located close to each other.
@@ -144,6 +193,16 @@ This document provides a comprehensive list of technical terms and business conc
 *   **RU:** Метод поиска, который стремится понять намерение и контекстуальное значение поискового запроса, а не просто сопоставлять ключевые слова.
 *   *See:* [Agent Overview](agent/overview.md)
 
+### Query orchestration / Оркестрация запросов
+*   **EN:** The layer that classifies a user question, routes it to SQL over `contract_facts`, summary-first or chunk vector search in Qdrant, or hybrid paths, then assembles the assistant response (used by `/chat` and workspace messaging).
+*   **RU:** Слой, который классифицирует вопрос пользователя, направляет запрос в SQL по `contract_facts`, в векторный поиск сводок или чанков в Qdrant, либо в гибридные сценарии, затем собирает ответ ассистента (используется в `/chat` и сообщениях рабочего пространства).
+*   *See:* [Query Orchestration Process](backend/processes/rag_chat.md), [RAG Flow](agent/rag_flow.md)
+
+### LM Studio
+*   **EN:** A local app that serves OpenAI-compatible HTTP APIs; the backend can point `LLM_PROVIDER` / `EMBEDDINGS_PROVIDER` to `lmstudio` and use `LMSTUDIO_API_BASE` for chat and embeddings instead of local Hugging Face pipelines.
+*   **RU:** Локальное приложение с OpenAI-совместимым HTTP API; бэкенд может выставить `LLM_PROVIDER` / `EMBEDDINGS_PROVIDER` в `lmstudio` и использовать `LMSTUDIO_API_BASE` для чата и эмбеддингов вместо локальных пайплайнов Hugging Face.
+*   *See:* [Agent Setup](agent/setup.md), [LM Studio Setup](learning_guide/lmstudio_setup.md)
+
 ### PromptTemplate / Шаблон промпта
 *   **EN:** A reproducible way to generate prompts for LLMs, often containing instructions and placeholders for context.
 *   **RU:** Воспроизводимый способ генерации подсказок (промптов) для LLM, часто содержащий инструкции и заполнители для контекста.
@@ -162,6 +221,11 @@ This document provides a comprehensive list of technical terms and business conc
 *   **EN:** A tool for defining and running multi-container Docker applications.
 *   **RU:** Инструмент для определения и запуска многоконтейнерных приложений Docker.
 *   *See:* [Infrastructure & Orchestration](learning_guide/infrastructure.md)
+
+### Redis
+*   **EN:** In-memory data store used here as the Celery broker and result backend so background tasks (parsing, extraction, indexing) are decoupled from the FastAPI process.
+*   **RU:** In-memory хранилище; в проекте — брокер и бэкенд результатов Celery, чтобы фоновые задачи (парсинг, извлечение, индексация) не выполнялись в процессе FastAPI.
+*   *See:* [Backend Setup](backend/setup.md)
 
 ### Containerization / Контейнеризация
 *   **EN:** The process of packaging an application and its dependencies into a single container image.

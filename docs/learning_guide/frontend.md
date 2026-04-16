@@ -1,30 +1,33 @@
 # Frontend SPA Foundations
 
-The frontend of Amaterasu provides the user interface. It needs to be fast, responsive, and capable of maintaining state without constantly reloading the page.
+The Amaterasu frontend is a **Svelte** single-page application: one initial load, then client-side updates as the user moves between views and loads data from the API.
 
 ## 1. Single Page Applications (SPA)
-**Theory:** Traditionally, clicking a link meant the server built an entirely new HTML page and sent it to your browser, causing a full page refresh. A Single Page Application (SPA) changes this. The browser loads a single HTML file initially. As the user navigates, JavaScript dynamically rewrites the current web page with new data from the web server, making the app feel incredibly fast and responsive, like a native desktop app.
 
-**Project Application:** Amaterasu's frontend is an SPA. When you navigate from the login screen to the document upload screen, the page doesn't refresh; JavaScript simply swaps out the login components for the upload components.
+**Theory:** Instead of full page reloads for every navigation, the shell HTML loads once; scripts swap views and fetch JSON from the backend. That keeps the UI responsive and avoids losing client state on every click.
 
-## 2. Component-Based Frameworks (Svelte)
-**Theory:** Modern frontends are built using components—reusable, isolated pieces of UI (like a Button, a Navbar, or a Chat Interface). Components manage their own HTML structure, CSS styling, and JavaScript logic (state). Frameworks like React, Vue, or Svelte help manage these components.
+**In this project:** Navigation switches between screens (for example login vs dashboard) without a round-trip HTML reload. The dashboard hosts the main workspace (sessions, explorer, document flows) as Svelte components.
 
-**Project Application:** We use **Svelte**. Unlike React, which does most of its work in the browser, Svelte is a compiler. It takes your component files (`.svelte`) and compiles them into highly optimized vanilla JavaScript at build time.
-*   *Example:* The chat interface is likely a Svelte component that maintains its own internal "state" (the list of chat messages). When a new message arrives from the backend, Svelte automatically updates the UI to reflect the new state.
+## 2. Components (Svelte)
 
-## 3. Tooling: Vite and Tailwind CSS
-**Theory:**
-*   **Bundlers (Vite):** Modern JavaScript relies on hundreds of files and libraries. Bundlers take all these files and package them into optimized files that the browser can quickly download. **Vite** is a modern, extremely fast build tool.
-*   **Utility-first CSS (Tailwind):** Instead of writing custom CSS classes in separate files, utility frameworks provide small, single-purpose CSS classes (e.g., `text-center`, `p-4` for padding) that you apply directly in your HTML/components.
+**Theory:** UIs are built from reusable components: markup, style, and reactive state live together in `.svelte` files.
 
-**Project Application:** Amaterasu uses **Vite** to run the local development server and compile the Svelte code. For styling, it relies heavily on **Tailwind CSS**, allowing for rapid UI development without writing custom CSS files.
+**In this project:** **Svelte 5** (see `frontend/package.json`) with **Vite** as the dev server and bundler. Components under `frontend/src/components/` and pages under `frontend/src/pages/` compose the experience.
 
-## 4. API Communication & Routing
-**Theory:**
-*   **Routing:** In an SPA, the URL in the browser still needs to change when the user navigates, even without a page reload. Client-side routers intercept URL changes and load the correct components.
-*   **API Calls:** The frontend needs a way to request data from the backend. This is usually done asynchronously via the `fetch` API or libraries like `axios`.
+## 3. Vite and Tailwind CSS
 
-**Project Application:**
-*   Amaterasu uses `svelte-routing` to handle navigation between pages (e.g., `/login`, `/dashboard`).
-*   It uses **Axios** to communicate with the FastAPI backend. Crucially, Axios is configured with an **Interceptor**. Every time the frontend sends a request to the backend, this interceptor automatically attaches the JWT token (stored in the browser's `localStorage` after login) to the request headers, ensuring all API calls are authenticated.
+**Theory:** **Vite** provides fast dev startup and optimized production bundles. **Tailwind** supplies utility classes for layout and typography so styling stays consistent without large custom CSS files.
+
+**In this project:** `npm run dev` runs Vite; Tailwind is configured for the Svelte app (see `postcss.config.js` / `tailwind.config.js`).
+
+## 4. Client-side routing
+
+**Theory:** The URL should reflect where the user is (bookmarking, back button) even without server-rendered pages. A small router listens to path changes and renders the matching component.
+
+**In this project:** Routing is implemented in **`frontend/src/lib/router.js`** using the **History API** (`pushState` / `popstate`) and a Svelte store (`currentPath`). There is no `svelte-routing` package in dependencies—logic is minimal: e.g. `/` for login, `/dashboard` for the main app (see `App.svelte`).
+
+## 5. API calls and JWT
+
+**Theory:** The browser calls the REST API with `fetch` or an HTTP client. Authenticated apps attach a bearer token on each request.
+
+**In this project:** **`axios`** is configured in **`frontend/src/lib/api.js`**: `baseURL` points to `http://localhost:8000/api/v1`, and a **request interceptor** reads the JWT from `localStorage` and sets `Authorization: Bearer …` when present. After login, subsequent calls to documents, chat sessions, and chat endpoints are authenticated automatically.
