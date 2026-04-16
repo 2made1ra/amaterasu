@@ -40,6 +40,8 @@ This will start PostgreSQL on port `5432` and Qdrant on ports `6333` and `6334`.
    * `QDRANT_HOST`: e.g., `localhost`.
    * `QDRANT_PORT`: e.g., `6333`.
    * `SECRET_KEY`: A secure random string for JWT signing.
+   * `UPLOAD_DIR`: Optional override for where uploaded PDFs are stored locally.
+   * `MAX_UPLOAD_SIZE_BYTES`: Optional maximum allowed upload size. The current default is `20971520` bytes (`20 MB`).
    * `OPENAI_API_KEY` (or equivalent for your LLM provider).
 
 ## Running the Application
@@ -60,4 +62,18 @@ FastAPI automatically generates interactive API documentation. Once the server i
 
 ## Database Initialization
 
-In the current setup, tables are created automatically on startup via `Base.metadata.create_all(bind=engine)` in `main.py`. For production or complex migrations, you should configure and use **Alembic** (already included in the dependencies).
+The backend now uses **Alembic** as the primary schema mechanism.
+
+Run migrations from the `backend/` directory:
+
+```bash
+uv run alembic upgrade head
+```
+
+For SQL review before applying a migration:
+
+```bash
+uv run alembic upgrade head --sql
+```
+
+`main.py` no longer creates tables automatically on startup.

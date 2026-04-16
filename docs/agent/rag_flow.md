@@ -1,29 +1,52 @@
 # The RAG Pipeline Flow
 
-This document details the step-by-step process of how the Retrieval-Augmented Generation (RAG) agent works, from document ingestion to answering user queries. The core logic resides in `backend/app/services/rag.py`.
+This document describes the current boundary between the phase-1 ingestion foundation and the existing RAG service in `backend/app/services/rag.py`.
 
-## 1. Document Ingestion Phase
+## 1. Current Upload Boundary
 
-When a user uploads a document (e.g., a PDF), the following sequence occurs:
+`POST /documents/upload` no longer runs the RAG pipeline inline.
 
-1. **Loading:** The `PyPDFLoader` from LangChain reads the PDF file and converts it into raw text documents.
-2. **Splitting:** The `RecursiveCharacterTextSplitter` breaks the large document down into smaller chunks (e.g., chunks of 1000 characters with an overlap of 200 characters). This ensures that context isn't lost at the boundaries of chunks and that chunks fit within the LLM's context window.
-3. **Metadata Extraction:** The `extract_metadata_from_text` function sends a sample of the text to the LLM to proactively extract metadata. For example, it prompts the LLM to find and return a "deadline date" formatted as `YYYY-MM-DD`. This metadata is then presented to the user for review (Human-in-the-Loop) before the document is finalized.
-4. **Vectorization & Storage:**
-   - The `save_to_vectorstore` function takes the text chunks.
-   - It injects critical metadata into every chunk: `document_id` and `owner_id`. This is vital for **Tenant Isolation**.
-   - The chunks are converted into vector embeddings.
-   - The embeddings and their associated metadata payloads are stored in the **Qdrant** vector database in the `contracts` collection.
+The current request flow is:
 
-## 2. Querying Phase
+1. validate the uploaded PDF;
+2. save the file to local storage;
+3. create a `documents` row with lifecycle fields such as `review_status`, `processing_status`, and `indexing_status`;
+4. return immediately with a document id and initial statuses;
+5. log a placeholder asynchronous dispatch event.
 
-When a user asks a question in the chat interface:
+This means the upload endpoint does not currently call:
 
-1. **Filtering (Tenant Isolation):** The `query_rag` function receives the query, the `owner_id`, and an optional `document_id`. It constructs a `models.Filter` for Qdrant.
-   - It *must* match the `metadata.owner_id` (ensuring the user only searches their own documents).
-   - It *may* match a specific `metadata.document_id` if the user is querying a single document.
-2. **Retrieval:** The user's query is converted into a vector embedding. Qdrant performs a similarity search against the database, applying the filter, and retrieves the most semantically relevant text chunks.
-3. **Prompt Construction:** The retrieved chunks (the "Context") and the user's question are injected into a LangChain `PromptTemplate`.
-   - **Special Instruction:** The prompt explicitly instructs the LLM: *"If searching for suppliers/contractors, provide a summary of the found suppliers based on the context."* This ensures the agent returns synthesized information rather than just raw chunks.
-4. **Generation:** The `RetrievalQA` chain sends the constructed prompt to the LLM.
-5. **Response:** The LLM generates an answer based *only* on the provided context, and the backend returns this string to the user.
+* `PyPDFLoader`;
+* text splitting;
+* metadata extraction prompts;
+* Qdrant writes.
+
+Those steps are planned to move into a background ingestion pipeline.
+
+## 2. Current Data Preparation Layer
+
+The backend foundation now includes PostgreSQL tables intended for the future ingestion pipeline:
+
+* `documents`: file metadata, ownership, lifecycle statuses, active extraction version, last error, and batch-ingestion fields;
+* `contract_facts`: extracted JSON facts keyed by document and extraction version;
+* `extraction_runs`: processing attempts, timestamps, run status, and error details.
+
+`GET /documents/{id}` reads this data so the frontend can poll document state and extracted facts.
+
+## 3. Existing Querying Path
+
+The project still contains an existing vector-search path in `app/services/rag.py`. When it is used:
+
+1. **Filtering (Tenant Isolation):** `query_rag` receives the query, the `owner_id`, and an optional `document_id`. It constructs a Qdrant filter that must match `metadata.owner_id` and may match `metadata.document_id`.
+2. **Retrieval:** The query is embedded and matched against stored vectors in Qdrant.
+3. **Prompt Construction:** Retrieved chunks plus the user question are inserted into a prompt template.
+4. **Generation:** The LLM generates an answer using the retrieved context.
+5. **Response:** The backend returns the generated answer as plain text.
+
+## 4. Important Note
+
+The vector-search service and the upload lifecycle are currently in a transitional state:
+
+* query-time RAG code still exists;
+* phase-1 upload no longer feeds that index synchronously;
+* the target architecture is to reintroduce extraction and indexing through background workers instead of HTTP request handling.

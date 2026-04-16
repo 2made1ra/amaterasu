@@ -5,7 +5,7 @@ The Schemas layer defines Pydantic models. These models are used to validate inc
 
 ## Internal Structure
 - **`user.py`**: Schemas for user operations, such as `UserCreate` (input for registration), `UserResponse` (output format hiding the password), and `UserUpdate`.
-- **`document.py`**: Schemas for document metadata, including inputs for updating extracted metadata during the Human-in-the-Loop review process.
+- **`document.py`**: Schemas for document upload responses, document list/detail responses, lifecycle statuses, and extracted-facts payloads used by `GET /documents/{id}`.
 - **`token.py`**: Schemas representing the JWT token payload and the response structure for authentication endpoints.
 
 ## Interactions

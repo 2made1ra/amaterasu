@@ -22,7 +22,7 @@ The backend code is organized following a standard full-stack FastAPI template s
 * **`app/core/`:** Contains core configuration settings (e.g., environment variables management via Pydantic) and security utilities.
 * **`app/crud/`:** Contains CRUD operations for documents, users, and persistent workspace sessions/messages.
 * **`app/db/`:** Database connection setup, session management, and Base classes for SQLAlchemy models.
-* **`app/models/`:** SQLAlchemy ORM models for users, documents, chat sessions, and chat messages.
+* **`app/models/`:** SQLAlchemy ORM models for users, documents, contract facts, extraction runs, chat sessions, and chat messages.
 * **`app/schemas/`:** Pydantic models used for data validation, serialization, and deserialization of API requests and responses.
 * **`app/services/`:** Contains business logic and integration code, including the RAG pipeline (`rag.py`), LLM integrations (`llm.py`), and workspace response shaping (`workspace.py`).
 * **`main.py`:** The entry point of the FastAPI application.
@@ -46,8 +46,15 @@ For the first iteration, the workspace snapshot is stored directly on `chat_sess
 The backend now exposes separate flows for:
 
 * **Main workspace chat:** `GET/POST /chat-sessions`, `GET /chat-sessions/{id}`, `POST /chat-sessions/{id}/messages`, `PATCH /chat-sessions/{id}/snapshot`.
-* **Document management:** upload, confirm, list, preview, and temporary contract chat under `/documents`.
+* **Document management:** lightweight upload, status polling, confirm, list, preview, and temporary contract chat under `/documents`.
 * **Legacy chat endpoint:** `/chat` still exists, but the dashboard is built around `/chat-sessions`.
+
+The current document flow is intentionally phase-1 only:
+
+* uploads save the file and create lifecycle rows in PostgreSQL;
+* document rows include review, processing, and indexing statuses plus optional batch metadata;
+* `GET /documents/{id}` supports frontend polling;
+* extraction and indexing are not performed inside the upload request cycle.
 
 ## Search Response Shaping
 

@@ -85,9 +85,9 @@ Follow these steps to ensure the project is working correctly:
 ### B. Document Upload & Human-in-the-Loop (HitL)
 1. Go to the **Upload** section.
 2. Select a PDF document (e.g., a technical manual or a product sheet).
-3. After the upload, the AI will extract metadata.
-4. **HitL Step**: You will be presented with the extracted metadata. Review it, make any necessary edits, and click **Confirm**.
-5. Once confirmed, the document is processed and indexed into the vector database.
+3. After the upload, the backend should return quickly and the document should appear in the library with phase-1 lifecycle statuses.
+4. **HitL Step**: Use the confirmation flow to mark the document as approved.
+5. In the current phase, upload and confirmation do not yet trigger background extraction or vector indexing automatically.
 
 ### C. AI RAG Chat
 1. Navigate to the **Chat** or **Assistant** section.

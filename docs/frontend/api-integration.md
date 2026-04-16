@@ -62,8 +62,9 @@ Error messages should ideally be returned in a consistent JSON format, such as `
 ### 4. RESTful Principles
 API endpoints should be logically structured using standard REST HTTP methods:
 * `GET /documents/`: Retrieve a list of documents.
-* `POST /documents/upload`: Create a new document.
-* `POST /documents/{id}/confirm`: Perform a specific action on a document.
+* `POST /documents/upload`: Create a new document from one PDF file and optional service metadata.
+* `GET /documents/{id}`: Poll the current lifecycle state and extracted facts for one document.
+* `POST /documents/{id}/confirm`: Perform a review action on a document.
 * `POST /chat/`: Send a message and receive a response.
 
 By maintaining these conventions on the backend, the frontend API integration remains clean, predictable, and easy to debug.

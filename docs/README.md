@@ -1,6 +1,6 @@
 # Project Documentation
 
-Welcome to the documentation for the AI RAG Assistant project. This application allows users to upload documents and query an AI agent to extract information, summarize data, and answer questions based strictly on the uploaded content.
+Welcome to the documentation for the AI RAG Assistant project. The current backend foundation supports migration-driven PostgreSQL schema management, lightweight single-file uploads, document status polling, and the workspace/chat surfaces around those documents.
 
 ## Navigation
 

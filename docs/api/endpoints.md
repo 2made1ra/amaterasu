@@ -16,10 +16,17 @@ These endpoints handle user registration, login, and token generation. They util
 
 ## 2. Documents (`/api/v1/documents`)
 
-These endpoints handle the uploading, processing, and management of files.
+These endpoints handle the lightweight phase-1 upload flow, document polling, and document management.
 
-* **`POST /documents/upload`**: Upload a new PDF and start the human-in-the-loop confirmation flow.
-* **`POST /documents/{id}/confirm`**: Confirm the extracted metadata and mark the document as confirmed.
+* **`POST /documents/upload`**: Upload a single PDF, validate it, save it to storage, and create a database row with `PENDING_REVIEW` and `QUEUED`.
+  * Supports optional service metadata fields for controlled bulk ingestion: `batch_id`, `ingestion_source`, `queue_priority`, and `trusted_import`.
+  * Does not run PDF parsing, LLM extraction, or Qdrant indexing inside the request cycle.
+* **`GET /documents/{id}`**: Return the current document lifecycle fields plus extracted facts when they exist.
+  * Intended for frontend polling.
+  * Returns `404` when the document does not exist or belongs to another user.
+* **`POST /documents/{id}/confirm`**: Mark the document as approved in the current phase-1 flow.
+  * This endpoint currently updates the review status only.
+  * It does not trigger indexing yet.
 * **`GET /documents/`**: Retrieve a list of all documents owned by the authenticated user.
 * **`GET /documents/{id}/preview`**: Return the PDF file for inline preview in the contract modal.
 * **`POST /documents/{id}/chat`**: Send a temporary contract-scoped query. This chat is not persisted in session history.

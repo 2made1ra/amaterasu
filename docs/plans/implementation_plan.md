@@ -6,6 +6,15 @@ Tags: backend, async, ingestion, rag
 
 **Status:** In Progress | **Audience:** Engineering Team, AI Agent, Migration Reviewers
 
+Phase 1 foundation has been implemented in the repository:
+
+- Alembic scaffolding and a phase-1 migration now exist under `backend/alembic/`
+- `documents`, `contract_facts`, and `extraction_runs` are represented in the model layer
+- `POST /documents/upload` now behaves as a lightweight upload endpoint
+- `GET /documents/{id}` now returns polling-friendly status data
+
+The remaining sections of this document continue to describe the broader rollout plan for phases 2-4.
+
 ## 1. Purpose
 
 This document captures the practical implementation plan for the backend portion of hybrid contract search based on [PLAN.md](../../PLAN.md) and the additional task-decomposition rules for working with an AI agent.
@@ -18,9 +27,9 @@ This document is intentionally focused on phases 1-4:
 
 The phases covering cron notifications and the executive dashboard should be moved into a separate plan after the ingestion and retrieval flow is stabilized.
 
-## 2. Current Baseline In Repository
+## 2. Historical Baseline In Repository
 
-At the time this plan was prepared, the repository already contains a working but non-target baseline:
+At the time this plan was prepared, the repository already contained a working but non-target baseline:
 
 - `backend/app/api/api_v1/endpoints/documents.py` performs uploads synchronously and tries to run extraction and indexing inside the request cycle.
 - `backend/app/models/document.py` stores only the simplified `PENDING` / `CONFIRMED` status pair, without an explicit lifecycle for ingestion, review, and indexing.

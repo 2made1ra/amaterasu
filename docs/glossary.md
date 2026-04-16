@@ -173,8 +173,8 @@ This document provides a comprehensive list of technical terms and business conc
 ## 💼 Business Processes & Concepts / Бизнес-процессы и концепции
 
 ### Human-in-the-Loop (HitL)
-*   **EN:** A process where AI performs a task (like metadata extraction) but requires human validation or correction before completion.
-*   **RU:** Процесс, при котором ИИ выполняет задачу (например, извлечение метаданных), но требует подтверждения или исправления человеком перед завершением.
+*   **EN:** A process where the system prepares a draft state for a document and requires human validation or confirmation before the document can be treated as approved.
+*   **RU:** Процесс, при котором система подготавливает черновое состояние документа и требует подтверждения человеком, прежде чем документ будет считаться утвержденным.
 *   *See:* [Document Upload & Processing](backend/processes/document_upload.md)
 
 ### Tenant Isolation / Изоляция тенантов (арендаторов)
@@ -183,13 +183,13 @@ This document provides a comprehensive list of technical terms and business conc
 *   *See:* [The RAG Pipeline Flow](agent/rag_flow.md)
 
 ### Metadata Extraction / Извлечение метаданных
-*   **EN:** The automatic process of identifying and saving specific information from a document (e.g., dates, names, amounts).
-*   **RU:** Автоматический процесс идентификации и сохранения определенной информации из документа (например, даты, имена, суммы).
+*   **EN:** The automatic process of identifying and saving structured information from a document (for example dates, names, or amounts), typically into a dedicated facts store.
+*   **RU:** Автоматический процесс идентификации и сохранения структурированной информации из документа (например, дат, имен или сумм), обычно в отдельное хранилище фактов.
 *   *See:* [Document Upload & Processing](backend/processes/document_upload.md)
 
 ### Document Ingestion / Поглощение документов
-*   **EN:** The process of importing, parsing, splitting, and indexing documents into the RAG system.
-*   **RU:** Процесс импорта, парсинга, разделения и индексации документов в системе RAG.
+*   **EN:** The end-to-end process of importing a document, persisting it, extracting structured facts, and optionally indexing it for search.
+*   **RU:** Сквозной процесс импорта документа, его сохранения, извлечения структурированных фактов и, при необходимости, индексации для поиска.
 *   *See:* [The RAG Pipeline Flow](agent/rag_flow.md)
 
 ### Hallucination / Галлюцинация
