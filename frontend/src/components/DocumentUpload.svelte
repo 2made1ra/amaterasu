@@ -30,6 +30,7 @@
     try {
       const res = await api.get("/documents/");
       documents = res.data;
+      dispatch("documentsChanged", { count: documents.length, documents });
     } catch (e) {
       console.error(e);
     }
@@ -110,40 +111,67 @@
   }
 </script>
 
-<div class="mb-6">
-  <h3 class="text-lg font-medium text-gray-900 mb-2">Upload Contract</h3>
-  <div class="flex items-center space-x-2">
-    <input type="file" accept=".pdf" bind:files class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"/>
-    <button on:click={uploadDocument} disabled={isUploading || !files} class="px-4 py-2 bg-blue-600 text-white rounded-md disabled:bg-gray-400">
-      {isUploading ? "Uploading..." : "Upload"}
-    </button>
-  </div>
-</div>
+<div class="grid gap-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(280px,0.9fr)]">
+  <section class="rounded-[24px] border border-slate-200 bg-slate-50/80 p-4">
+    <p class="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Import</p>
+    <h3 class="mt-1 text-lg font-semibold text-slate-900">Upload a contract PDF</h3>
+    <p class="mt-2 text-sm text-slate-500">
+      Contracts added here become available to future workspace searches after confirmation.
+    </p>
 
-<div class="mt-4">
-  <h3 class="text-lg font-medium text-gray-900 mb-2">My Documents</h3>
-  <div class="space-y-2">
-    <button
-      type="button"
-      class="w-full p-3 rounded-md border border-gray-200 bg-white hover:bg-gray-50 flex justify-between text-left"
-      on:click={() => dispatch("documentSelected", null)}
-    >
-      <span class="font-medium text-blue-600">Global Context (All Docs)</span>
-    </button>
-    {#each documents as doc}
+    <div class="mt-4 flex flex-col gap-3">
+      <input
+        type="file"
+        accept=".pdf"
+        bind:files
+        class="block w-full rounded-2xl border border-slate-200 bg-white p-3 text-sm text-slate-500 file:mr-4 file:rounded-full file:border-0 file:bg-sky-50 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-sky-700 hover:file:bg-sky-100"
+      />
       <button
-        type="button"
-        class="w-full p-3 rounded-md border border-gray-200 bg-white hover:bg-gray-50 flex flex-col text-left"
-        on:click={() => dispatch("documentSelected", doc.id)}
+        on:click={uploadDocument}
+        disabled={isUploading || !files}
+        class="w-fit rounded-full bg-slate-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
       >
-        <span class="font-medium text-gray-800">{doc.title}</span>
-        <span class="text-xs text-gray-500">Status: {doc.status}</span>
-        {#if doc.extracted_deadline}
-          <span class="text-xs text-red-500">Deadline: {new Date(doc.extracted_deadline).toLocaleDateString()}</span>
-        {/if}
+        {isUploading ? "Uploading..." : "Upload contract"}
       </button>
-    {/each}
-  </div>
+    </div>
+  </section>
+
+  <section class="rounded-[24px] border border-slate-200 bg-white p-4">
+    <div class="flex items-center justify-between gap-3">
+      <div>
+        <p class="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Library</p>
+        <h3 class="mt-1 text-lg font-semibold text-slate-900">Available contracts</h3>
+      </div>
+      <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">{documents.length}</span>
+    </div>
+
+    <div class="mt-4 max-h-64 space-y-2 overflow-y-auto pr-1">
+      {#if documents.length === 0}
+        <div class="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
+          No contracts uploaded yet.
+        </div>
+      {:else}
+        {#each documents as doc}
+          <div class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+            <div class="flex items-start justify-between gap-3">
+              <div>
+                <p class="text-sm font-medium text-slate-800">{doc.title}</p>
+                <p class="mt-1 text-xs text-slate-500">Status: {doc.status}</p>
+              </div>
+              <span class={`rounded-full px-2 py-1 text-[11px] font-medium ${doc.status === "CONFIRMED" ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>
+                {doc.status}
+              </span>
+            </div>
+            {#if doc.extracted_deadline}
+              <p class="mt-2 text-xs text-rose-600">
+                Deadline: {new Date(doc.extracted_deadline).toLocaleDateString()}
+              </p>
+            {/if}
+          </div>
+        {/each}
+      {/if}
+    </div>
+  </section>
 </div>
 
 {#if showConfirmModal}

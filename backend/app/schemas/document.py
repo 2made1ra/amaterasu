@@ -28,3 +28,11 @@ class ExtractedMetadata(BaseModel):
     deadline: Optional[datetime]
     summary: Optional[str]
     raw_text: str
+
+
+class ContractChatRequest(BaseModel):
+    query: str
+
+
+class ContractChatResponse(BaseModel):
+    answer: str

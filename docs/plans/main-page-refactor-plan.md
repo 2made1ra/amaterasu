@@ -1,114 +1,114 @@
-# План рефакторинга главной страницы, чатов и окна договоров
+# Main page, chats, and contract window refactor plan
 
-Дата: 2026-04-16
-Статус: Draft
-Область: Frontend + Backend + API + документация
+Date: 2026-04-16
+Status: Draft
+Scope: Frontend + Backend + API + documentation
 
-## 1. Цель рефакторинга
+## 1. Refactor goals
 
-Перестроить основную страницу из текущего сценария "загрузка документа слева + один чат справа" в новый рабочий сценарий:
+Rebuild the main page from the current flow “document upload on the left + single chat on the right” into a new working scenario:
 
-- слева узкая колонка с историей основных чат-сессий менеджера;
-- в основной рабочей области экран делится на две части:
-  - слева окно результатов в виде файловой системы;
-  - справа чат с агентом;
-- история чатов должна хранить не только переписку, но и связанное с ней состояние левого окна результатов;
-- история чатов не должна быть привязана к одному загруженному файлу;
-- по клику на найденный договор должно открываться модальное окно:
-  - слева предпросмотр договора;
-  - справа чат по выбранному договору;
-- чат внутри модального окна является временным рабочим контекстом и не сохраняется в историю.
+- a narrow left column with history of the manager’s main chat sessions;
+- in the main work area, the screen splits into two parts:
+  - on the left, a results pane styled like a file system;
+  - on the right, chat with the agent;
+- chat history must store not only the thread but also the associated state of the left results pane;
+- chat history must not be tied to a single uploaded file;
+- clicking a found contract opens a modal:
+  - contract preview on the left;
+  - chat about the selected contract on the right;
+- chat inside the modal is a temporary work context and is not saved to history.
 
-## 2. Что есть сейчас и почему этого недостаточно
+## 2. Current state and why it is insufficient
 
-Текущее состояние кода:
+Current code:
 
-- [frontend/src/pages/Dashboard.svelte](/Users/2madeira/DEV/PROJECTS/amaterasu/frontend/src/pages/Dashboard.svelte) собирает экран из двух зон: слева `DocumentUpload`, справа `Chat`.
-- [frontend/src/components/Chat.svelte](/Users/2madeira/DEV/PROJECTS/amaterasu/frontend/src/components/Chat.svelte) работает только в режиме `global` или `local by document_id`.
-- [frontend/src/components/DocumentUpload.svelte](/Users/2madeira/DEV/PROJECTS/amaterasu/frontend/src/components/DocumentUpload.svelte) совмещает загрузку документа и список документов, то есть левая панель уже сейчас логически привязана к файлам.
-- [backend/app/api/api_v1/endpoints/chat.py](/Users/2madeira/DEV/PROJECTS/amaterasu/backend/app/api/api_v1/endpoints/chat.py) принимает только `query` и опциональный `document_id`.
-- [backend/app/models/document.py](/Users/2madeira/DEV/PROJECTS/amaterasu/backend/app/models/document.py) хранит только метаданные документа, но не хранит чат-сессии, результаты выдачи и состояние пользовательского рабочего пространства.
+- [frontend/src/pages/Dashboard.svelte](/Users/2madeira/DEV/PROJECTS/amaterasu/frontend/src/pages/Dashboard.svelte) composes the screen from two zones: `DocumentUpload` on the left, `Chat` on the right.
+- [frontend/src/components/Chat.svelte](/Users/2madeira/DEV/PROJECTS/amaterasu/frontend/src/components/Chat.svelte) only supports `global` or `local by document_id` mode.
+- [frontend/src/components/DocumentUpload.svelte](/Users/2madeira/DEV/PROJECTS/amaterasu/frontend/src/components/DocumentUpload.svelte) combines document upload and document list, so the left panel is already logically file-centric.
+- [backend/app/api/api_v1/endpoints/chat.py](/Users/2madeira/DEV/PROJECTS/amaterasu/backend/app/api/api_v1/endpoints/chat.py) only accepts `query` and optional `document_id`.
+- [backend/app/models/document.py](/Users/2madeira/DEV/PROJECTS/amaterasu/backend/app/models/document.py) stores document metadata only, not chat sessions, retrieval results, or user workspace state.
 
-Ключевой разрыв между текущей архитектурой и целевым UX:
+Key gaps between current architecture and target UX:
 
-- нет сущности "основная чат-сессия менеджера";
-- нет хранения истории сообщений отдельно от документов;
-- нет хранения снимка окна результатов;
-- нет структурированного ответа поиска в виде дерева "поставщик -> договоры";
-- нет режима временного диалога по конкретному договору без сохранения истории;
-- нет API для предпросмотра выбранного договора в модальном окне.
+- no “main manager chat session” entity;
+- no message history storage separate from documents;
+- no snapshot of the results pane;
+- no structured search response as a “supplier → contracts” tree;
+- no temporary dialog mode for a specific contract without persisting history;
+- no API for previewing the selected contract in a modal.
 
-## 3. Целевая модель взаимодействия
+## 3. Target interaction model
 
-### 3.1 Основной рабочий экран
+### 3.1 Main work screen
 
-Основная страница должна стать трехзонным workspace:
+The main page should become a three-zone workspace:
 
-- левая колонка: список чат-сессий менеджера;
-- центральная колонка: окно результатов, напоминающее файловую систему;
-- правая колонка: чат с агентом.
+- left column: list of manager chat sessions;
+- center column: results pane resembling a file system;
+- right column: chat with the agent.
 
-Поведение:
+Behavior:
 
-- менеджер открывает существующую сессию или создает новую;
-- пишет запрос в основной чат;
-- агент возвращает текстовый ответ и структурированный набор результатов;
-- результаты отображаются слева от чата в виде дерева:
-  - список договоров;
-  - либо список папок поставщиков;
-  - внутри папок лежат договоры;
-- состояние этого дерева сохраняется вместе с основной чат-сессией;
-- при повторном открытии сессии восстанавливаются:
-  - история сообщений;
-  - последнее дерево результатов;
-  - выделенный узел;
-  - режим развернутых папок.
+- the manager opens an existing session or creates a new one;
+- they send a query in the main chat;
+- the agent returns a text answer and a structured set of results;
+- results appear to the left of the chat as a tree:
+  - list of contracts;
+  - or list of supplier folders;
+  - contracts live inside folders;
+- the state of this tree is persisted with the main chat session;
+- when reopening a session, the following are restored:
+  - message history;
+  - the last results tree;
+  - selected node;
+  - expanded-folder mode.
 
-### 3.2 Окно договора
+### 3.2 Contract window
 
-При клике на договор из дерева результатов открывается модальное окно поверх основного workspace:
+Clicking a contract in the results tree opens a modal over the main workspace:
 
-- слева предпросмотр PDF или документа;
-- справа чат, ограниченный контекстом выбранного договора.
+- preview of the PDF or document on the left;
+- chat scoped to the selected contract on the right.
 
-Поведение:
+Behavior:
 
-- этот чат не попадает в историю основных сессий;
-- после закрытия модального окна его переписка может быть сброшена;
-- если потребуется, состояние модального чата можно хранить только в памяти фронтенда до закрытия окна, без записи в БД.
+- this chat is not included in main session history;
+- after closing the modal, its thread may be discarded;
+- if needed, modal chat state can live only in frontend memory until the window closes, without DB writes.
 
-## 4. Изменения, которые нужно внести
+## 4. Required changes
 
 ## 4.1 Frontend
 
-- Разделить текущий `Dashboard` на layout-уровень и независимые рабочие панели.
-- Убрать жесткую связь основного чата с `activeDocumentId`.
-- Ввести отдельное состояние для:
-  - списка основных чат-сессий;
-  - активной чат-сессии;
-  - сообщений основной сессии;
-  - снимка окна результатов;
-  - состояния модального просмотра договора;
-  - временного чата по договору.
-- Разделить левую часть UI на два разных смысла:
-  - история чатов;
-  - окно результатов/проводник.
-- Вынести загрузку документов из роли "главной левой панели" в отдельный контрол workspace:
+- Split current `Dashboard` into layout-level shell and independent work panels.
+- Remove the hard coupling of main chat to `activeDocumentId`.
+- Introduce separate state for:
+  - list of main chat sessions;
+  - active chat session;
+  - main session messages;
+  - results pane snapshot;
+  - modal contract view state;
+  - temporary contract chat.
+- Split the left UI into two distinct roles:
+  - chat history;
+  - results pane / explorer.
+- Move document upload out of the “primary left panel” role into a dedicated workspace control:
   - toolbar;
-  - кнопка загрузки;
-  - отдельный экран/панель импорта;
-  - либо отдельный блок внутри окна результатов, но не вместо истории.
-- Добавить отдельный компонент предпросмотра договора.
-- Добавить модальный контейнер для contract-focused workflow.
-- Добавить явные loading/empty/error состояния для:
-  - списка сессий;
-  - ответа агента;
-  - дерева результатов;
-  - предпросмотра договора.
+  - upload button;
+  - separate import screen/panel;
+  - or a block inside the results pane, but not in place of history.
+- Add a dedicated contract preview component.
+- Add a modal container for the contract-focused workflow.
+- Add explicit loading/empty/error states for:
+  - session list;
+  - agent response;
+  - results tree;
+  - contract preview.
 
-Рекомендуемая декомпозиция компонентов:
+Recommended component breakdown:
 
-- `DashboardWorkspace.svelte` или обновленный `Dashboard.svelte` как orchestration-слой;
+- `DashboardWorkspace.svelte` or an updated `Dashboard.svelte` as orchestration layer;
 - `ChatSessionSidebar.svelte`;
 - `AgentChatPanel.svelte`;
 - `ResultExplorerPanel.svelte`;
@@ -118,25 +118,25 @@
 - `ContractPreviewPane.svelte`;
 - `ContractChatPanel.svelte`.
 
-Рекомендуемое состояние на фронтенде:
+Recommended frontend state:
 
-- Svelte store для списка и активной основной сессии;
-- Svelte store для дерева результатов и UI-состояния проводника;
-- локальное состояние модального окна и временного contract-chat;
-- отдельный маппинг `sessionId -> workspace snapshot`, если хотим быстрое восстановление без лишних запросов.
+- Svelte store for list and active main session;
+- Svelte store for results tree and explorer UI state;
+- local state for modal and temporary contract chat;
+- optional `sessionId -> workspace snapshot` map for fast restore without extra requests.
 
 ## 4.2 Backend
 
-- Ввести постоянную сущность основной чат-сессии менеджера.
-- Ввести хранение истории сообщений основной чат-сессии.
-- Ввести хранение снимка окна результатов, привязанного к основной сессии, а не к одному документу.
-- Расширить search orchestration так, чтобы она возвращала не только `answer`, но и структурированные результаты для дерева.
-- Добавить API для загрузки и восстановления истории сессий.
-- Добавить API для получения и/или стриминга файла договора для предпросмотра.
-- Добавить отдельный endpoint для contract-scoped chat без персистентного сохранения.
-- Подготовить основу для группировки результатов по поставщику.
+- Introduce a persistent main manager chat session entity.
+- Persist message history for the main chat session.
+- Persist a results-pane snapshot bound to the main session, not a single document.
+- Extend search orchestration so it returns not only `answer` but structured results for the tree.
+- Add APIs to load and restore session history.
+- Add API to fetch and/or stream contract file for preview.
+- Add a separate endpoint for contract-scoped chat without persistent storage.
+- Lay groundwork for grouping results by supplier.
 
-Новые или расширяемые доменные сущности:
+New or extended domain entities:
 
 - `chat_sessions`
   - `id`
@@ -151,7 +151,7 @@
   - `role`
   - `content`
   - `created_at`
-  - опционально `metadata`
+  - optional `metadata`
 - `workspace_snapshots`
   - `id`
   - `session_id`
@@ -161,61 +161,61 @@
   - `view_mode`
   - `updated_at`
 
-Если хочется уменьшить объем первой итерации, `workspace_snapshots` можно хранить как JSON-поле прямо в `chat_sessions`, но для дальнейшего роста лучше держать это отдельно.
+To shrink the first iteration, `workspace_snapshots` can be stored as JSON on `chat_sessions`; for growth, keep it separate.
 
-Дополнительные данные по документу, которые понадобятся для дерева результатов:
+Additional document fields needed for the results tree:
 
-- имя поставщика/контрагента;
-- тип сущности результата;
-- путь в дереве;
-- флаг "договор/папка";
-- человекочитаемый заголовок;
-- ссылка на предпросмотр.
+- supplier / counterparty name;
+- result entity type;
+- path in the tree;
+- “contract / folder” flag;
+- human-readable title;
+- preview link.
 
-Если поставщик пока не извлекается стабильно, на переходном этапе можно:
+If supplier is not extracted reliably yet, as an interim approach:
 
-- сначала выдавать плоский список договоров;
-- затем в следующей итерации включить группировку по поставщику;
-- либо складывать такие договоры во временную папку `Без поставщика`.
+- start with a flat list of contracts;
+- enable supplier grouping in a later iteration;
+- or place such contracts in a temporary “No supplier” folder.
 
-## 4.3 API-контракт
+## 4.3 API contract
 
-Нужны новые или переработанные endpoint-ы:
+New or revised endpoints:
 
 - `GET /chat-sessions`
-  - список основных чат-сессий пользователя;
+  - list of the user’s main chat sessions;
 - `POST /chat-sessions`
-  - создание новой основной сессии;
+  - create a new main session;
 - `GET /chat-sessions/{id}`
-  - получение истории сообщений и сохраненного снимка окна результатов;
+  - load message history and persisted results-pane snapshot;
 - `POST /chat-sessions/{id}/messages`
-  - отправка сообщения в основную сессию;
-  - ответ должен включать:
-    - сообщение ассистента;
-    - обновленный snapshot дерева результатов;
-    - опционально `session_title`, если он генерируется автоматически;
+  - send a message to the main session;
+  - response should include:
+    - assistant message;
+    - updated results-tree snapshot;
+    - optional `session_title` if auto-generated;
 - `PATCH /chat-sessions/{id}/snapshot`
-  - сохранение пользовательского состояния левого окна, если решим сохранять его отдельно от ответа агента;
+  - persist user state of the left pane if we save it separately from the agent response;
 - `GET /documents/{id}/preview`
-  - URL, stream или raw file response для предпросмотра договора;
+  - URL, stream, or raw file for contract preview;
 - `POST /documents/{id}/chat`
-  - чат по конкретному договору без записи в историю.
+  - chat for a specific contract without writing to history.
 
-Текущий `POST /chat/` лучше не расширять бесконтрольно. Чище разделить:
+Prefer not to grow `POST /chat/` without bounds. Cleaner split:
 
 - main workspace chat;
 - contract chat;
-- документы и предпросмотр.
+- documents and preview.
 
 ## 4.4 Search / RAG orchestration
 
-Основной чат теперь должен возвращать не только обычный текстовый ответ, но и структуру результатов для левого окна. Для этого потребуется:
+Main chat must return not only plain text but structure for the left pane. That requires:
 
-- расширить orchestration-слой поиска;
-- нормализовать response schema результата;
-- договориться о едином формате дерева.
+- extending the search orchestration layer;
+- normalizing the result response schema;
+- agreeing on a single tree format.
 
-Предлагаемый формат узла результата:
+Proposed result node shape:
 
 - `id`
 - `type`: `folder | supplier | contract`
@@ -227,7 +227,7 @@
 - `badges`
 - `meta`
 
-Ответ основной чат-команды должен содержать:
+Main chat command response should include:
 
 - `assistant_message`;
 - `result_tree`;
@@ -237,175 +237,175 @@
   - total_matches;
   - grouping_mode.
 
-## 5. Этапы реализации
+## 5. Implementation phases
 
-## Этап 1. Зафиксировать UX-контракт и границы нового workspace
+## Phase 1. Lock UX contract and new workspace boundaries
 
-Что делаем:
+What we do:
 
-- описываем финальную композицию экрана;
-- фиксируем, какие данные должны сохраняться в истории основной сессии;
-- фиксируем, что contract-chat не сохраняется;
-- определяем, где в новом layout будет жить загрузка документов.
+- describe final screen composition;
+- define what persists in main session history;
+- confirm contract chat is not persisted;
+- decide where document upload lives in the new layout.
 
-Результат этапа:
+Phase outcome:
 
-- согласованный UX-flow;
-- список обязательных сущностей и API;
-- обновленный UI-state contract между frontend и backend.
+- agreed UX flow;
+- list of required entities and APIs;
+- updated UI-state contract between frontend and backend.
 
-## Этап 2. Подготовить backend-модель данных под сессии и снимки workspace
+## Phase 2. Backend data model for sessions and workspace snapshots
 
-Что делаем:
+What we do:
 
-- добавляем модели основных чат-сессий, сообщений и snapshot-ов;
-- добавляем CRUD/сервисы для их чтения и записи;
-- при необходимости подготавливаем миграции схемы БД;
-- продумываем, как привязать supplier metadata к документам или `contract_facts`.
+- add models for main chat sessions, messages, and snapshots;
+- add CRUD/services for read/write;
+- prepare DB migrations if needed;
+- plan how to attach supplier metadata to documents or `contract_facts`.
 
-Результат этапа:
+Phase outcome:
 
-- backend способен хранить независимую историю основных сессий;
-- история перестает зависеть от `document_id`;
-- появляется место для сохранения состояния окна результатов.
+- backend can store independent main session history;
+- history no longer depends on `document_id`;
+- there is a place to persist results-pane state.
 
-## Этап 3. Переработать backend API под новый рабочий сценарий
+## Phase 3. Backend API for the new work scenario
 
-Что делаем:
+What we do:
 
-- добавляем endpoints для списка, создания и загрузки сессий;
-- добавляем endpoint отправки сообщения в основную сессию;
-- расширяем ответ агента структурированным `result_tree`;
-- добавляем endpoint предпросмотра договора;
-- добавляем отдельный endpoint временного чата по договору.
+- add endpoints for listing, creating, and loading sessions;
+- add endpoint to send messages to the main session;
+- extend agent response with structured `result_tree`;
+- add contract preview endpoint;
+- add separate temporary contract-chat endpoint.
 
-Результат этапа:
+Phase outcome:
 
-- фронтенд получает стабильный API-контракт для нового UX;
-- основная чат-сессия и окно договора становятся двумя разными backend-сценариями.
+- frontend gets a stable API contract for the new UX;
+- main chat session and contract window become two distinct backend flows.
 
-## Этап 4. Рефакторинг frontend-layout и состояния страницы
+## Phase 4. Frontend layout and page state refactor
 
-Что делаем:
+What we do:
 
-- перерабатываем `Dashboard` в трехзонный workspace;
-- выносим историю чатов в отдельную левую колонку;
-- создаем отдельную панель окна результатов;
-- создаем stores для сессий, сообщений, snapshot-ов и active selection;
-- отвязываем основной чат от прямой модели `activeDocumentId`.
+- reshape `Dashboard` into a three-zone workspace;
+- move chat history into its own left column;
+- add a dedicated results pane;
+- create stores for sessions, messages, snapshots, and active selection;
+- decouple main chat from direct `activeDocumentId` coupling.
 
-Результат этапа:
+Phase outcome:
 
-- главная страница начинает соответствовать целевому layout;
-- история чатов и результаты поиска разделены по ролям;
-- состояние страницы становится управляемым и расширяемым.
+- main page matches target layout;
+- chat history and search results have distinct roles;
+- page state is manageable and extensible.
 
-## Этап 5. Реализовать новый flow основного чата и окна результатов
+## Phase 5. Main chat and results-pane flow
 
-Что делаем:
+What we do:
 
-- при отправке запроса создаем или обновляем основную сессию;
-- сохраняем сообщения и связанный snapshot результатов;
-- отрисовываем дерево результатов как "проводник";
-- восстанавливаем состояние окна при переключении между сессиями;
-- добавляем состояния empty/loading/error.
+- on send, create or update the main session;
+- persist messages and associated results snapshot;
+- render results tree as an “explorer”;
+- restore pane state when switching sessions;
+- add empty/loading/error states.
 
-Результат этапа:
+Phase outcome:
 
-- история слева действительно хранит "это окно", а не просто список сообщений;
-- пользователь может вернуться к предыдущему поисковому сценарию и продолжить работу.
+- left history truly stores “this pane,” not only messages;
+- users can return to a prior search scenario and continue.
 
-## Этап 6. Реализовать модальное окно договора с временным чатом
+## Phase 6. Contract modal with temporary chat
 
-Что делаем:
+What we do:
 
-- открываем договор из дерева результатов в modal overlay;
-- слева показываем предпросмотр договора;
-- справа открываем contract-scoped chat;
-- не сохраняем этот чат в историю основных сессий;
-- после закрытия окна очищаем временное состояние или оставляем его только до закрытия страницы.
+- open contract from results tree in a modal overlay;
+- show contract preview on the left;
+- open contract-scoped chat on the right;
+- do not persist this chat in main session history;
+- after close, clear temp state or keep it only until page unload.
 
-Результат этапа:
+Phase outcome:
 
-- появляется отдельный рабочий контур "просмотр договора + быстрый чат по нему";
-- история основных сессий не засоряется узкоконтекстными диалогами.
+- separate loop: “view contract + quick chat”;
+- main session history is not cluttered with narrow-context threads.
 
-## Этап 7. Тестирование, стабилизация и миграция существующего сценария
+## Phase 7. Testing, stabilization, and migration of the old flow
 
-Что делаем:
+What we do:
 
-- покрываем backend новые сущности и API тестами;
-- проверяем восстановление history/snapshot;
-- тестируем открытие договора из дерева;
-- проверяем деградацию на документах без supplier metadata;
-- переносим старый сценарий загрузки документов в новый layout без потери доступности функции.
+- test new backend entities and APIs;
+- verify history/snapshot restore;
+- test opening contract from tree;
+- check degradation when supplier metadata is missing;
+- move old document-upload flow into new layout without losing the feature.
 
-Результат этапа:
+Phase outcome:
 
-- новый сценарий стабилен;
-- старый путь "загрузил документ -> задал вопрос" не ломает основной workflow;
-- команда понимает, как мигрировать существующие UI-элементы.
+- new flow is stable;
+- old “upload document → ask question” path does not break main workflow;
+- team knows how to migrate existing UI pieces.
 
-## Этап 8. Обновление документации
+## Phase 8. Documentation update
 
-Последний этап должен быть выполнен после стабилизации реализации.
+Run this last, after implementation stabilizes.
 
-Что обновляем:
+What we update:
 
 - [docs/plans/prd.md](/Users/2madeira/DEV/PROJECTS/amaterasu/docs/plans/prd.md)
-  - зафиксировать новый UX главной страницы;
-  - описать разделение на историю сессий, окно результатов и основной чат;
-  - описать модальное окно договора и несохраняемый contract-chat;
+  - document new main-page UX;
+  - describe split: session history, results pane, main chat;
+  - describe contract modal and non-persisted contract chat;
 - [docs/frontend/overview.md](/Users/2madeira/DEV/PROJECTS/amaterasu/docs/frontend/overview.md)
-  - отразить новый composition pattern страницы;
+  - reflect new page composition pattern;
 - [docs/frontend/state-and-routing.md](/Users/2madeira/DEV/PROJECTS/amaterasu/docs/frontend/state-and-routing.md)
-  - описать stores и новую модель состояния;
+  - document stores and new state model;
 - [docs/backend/overview.md](/Users/2madeira/DEV/PROJECTS/amaterasu/docs/backend/overview.md)
-  - отразить новые сущности сессий и snapshot-ов;
+  - reflect session and snapshot entities;
 - [docs/api/endpoints.md](/Users/2madeira/DEV/PROJECTS/amaterasu/docs/api/endpoints.md)
-  - зафиксировать новые endpoints.
+  - document new endpoints.
 
-Результат этапа:
+Phase outcome:
 
-- продуктовая и техническая документация соответствуют обновленному функционалу;
-- PRD отражает новый сценарий работы менеджера.
+- product and technical docs match the new behavior;
+- PRD reflects the manager’s new workflow.
 
-## 6. Приоритеты реализации
+## 6. Implementation priorities
 
-Высокий приоритет:
+High priority:
 
-- отвязать историю чатов от файла;
-- реализовать хранение основной сессии и snapshot-а окна результатов;
-- разделить main chat и contract chat;
-- сделать новый layout главной страницы.
+- decouple chat history from a single file;
+- implement main session and results-pane snapshot storage;
+- split main chat and contract chat;
+- ship the new main-page layout.
 
-Средний приоритет:
+Medium priority:
 
-- группировка по поставщикам;
-- автогенерация заголовка сессии;
-- тонкая синхронизация UI-состояния дерева между фронтом и бэком.
+- supplier grouping;
+- auto-generated session title;
+- fine-grained sync of tree UI state between frontend and backend.
 
-Низкий приоритет для первой итерации:
+Lower priority for v1:
 
-- сложные операции в файловом дереве;
-- сохранение состояния временного contract-chat между открытиями;
-- расширенные режимы сортировки и фильтрации в окне результатов.
+- advanced operations in the file tree;
+- persisting temporary contract-chat state across modal opens;
+- extended sort/filter modes in the results pane.
 
-## 7. Рекомендуемый порядок внесения изменений в код
+## 7. Recommended order of code changes
 
-Чтобы не ломать рабочий сценарий, изменения лучше вносить в таком порядке:
+To avoid breaking the working flow, prefer this order:
 
-1. Сначала подготовить backend-модель и API под сессии.
-2. Затем ввести новый frontend state layer и новый layout.
-3. После этого подключить structured results и дерево.
-4. Затем добавить modal contract workflow.
-5. Последним этапом обновить документацию и PRD.
+1. Backend model and APIs for sessions first.
+2. Then new frontend state layer and layout.
+3. Then structured results and tree.
+4. Then modal contract workflow.
+5. Documentation and PRD last.
 
-## 8. Итог
+## 8. Summary
 
-Рефакторинг затрагивает не только внешний вид главной страницы, но и базовую модель взаимодействия системы:
+The refactor changes not only main-page appearance but the system’s core interaction model:
 
-- основная единица работы меняется с "документ как точка входа" на "чат-сессия как рабочий контекст";
-- результаты поиска становятся самостоятельной сущностью UI и backend-response;
-- договор получает отдельный временный режим просмотра и диалога;
-- документация должна быть обновлена только после фиксации новой архитектуры и пользовательского сценария.
+- primary unit of work shifts from “document as entry point” to “chat session as work context”;
+- search results become a first-class UI entity and backend response;
+- contracts get a dedicated temporary view-and-chat mode;
+- documentation should be updated only after the new architecture and user scenario are fixed.

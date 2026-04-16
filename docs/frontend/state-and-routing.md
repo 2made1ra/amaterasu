@@ -1,106 +1,57 @@
 # State Management and Routing
 
-This document explains the core mechanics of how the application tracks data (state) and how users navigate between different views (routing).
+This document explains how the current workspace frontend manages persistent main chat sessions, explorer state, modal contract chat, and simple client-side routing.
 
-## State Management in Svelte
+## State Model
 
-Unlike frameworks like React (which requires `useState` or Redux) or Vue (which uses Vuex/Pinia), Svelte has reactivity built directly into the language via the compiler.
+The state is split into three layers.
 
-### 1. Local Component State
-In a `.svelte` file, any variable declared with `let` inside the `<script>` block is automatically reactive. When you reassign that variable, Svelte automatically updates the UI wherever that variable is used.
+### 1. Shared workspace stores
 
-```html
-<script>
-  // This is reactive state
-  let inputQuery = "";
-  let isSending = false;
-</script>
+The shared state for the main dashboard lives in [frontend/src/lib/stores/workspace.js](/Users/2madeira/DEV/PROJECTS/amaterasu/frontend/src/lib/stores/workspace.js).
 
-<!-- The UI updates automatically when inputQuery or isSending changes -->
-<textarea bind:value={inputQuery}></textarea>
-<button disabled={isSending}>Send</button>
-```
+It stores:
 
-### 2. Parent-Child Communication (Props)
-Data is passed downwards from a parent component to a child component using **props**. In the child component, you declare a variable with the `export` keyword to accept a prop.
+* `sessions`: the list shown in the session sidebar;
+* `activeSessionId`: the currently selected persistent main session;
+* `activeSessionTitle`: the title restored from the backend or generated from the first query;
+* `activeSessionMessages`: the main chat history for the active session;
+* `workspaceSnapshot`: the persisted results-pane state, including `result_tree`, `selected_node_id`, `expanded_node_ids`, and `view_mode`.
 
-**Parent (`Dashboard.svelte`):**
-```html
-<!-- Passing activeDocumentId down to the Chat component -->
-<Chat {activeDocumentId} />
-```
+This store layer is intentionally small and focused on the main workspace. It does not store the temporary modal contract chat.
 
-**Child (`Chat.svelte`):**
-```html
-<script>
-  // Receiving the prop
-  export let activeDocumentId = null;
-</script>
-```
+### 2. Dashboard-local orchestration state
 
-### 3. Child-Parent Communication (Events)
-When a child component needs to tell a parent component that something happened (like a document was clicked), it dispatches a custom event using `createEventDispatcher`.
+The dashboard page keeps request-specific UI state as local reactive variables, for example:
 
-**Child (`DocumentUpload.svelte`):**
-```html
-<script>
-  import { createEventDispatcher } from "svelte";
-  const dispatch = createEventDispatcher();
+* bootstrapping and loading flags;
+* API error messages for the session list, agent chat, and explorer;
+* toolbar document count;
+* the currently open contract node for the modal.
 
-  function selectDocument(id) {
-    // Dispatch a 'documentSelected' event, passing the document ID as details
-    dispatch("documentSelected", id);
-  }
-</script>
+This separation keeps the shared stores stable while allowing the page component to manage request lifecycles and optimistic UI updates.
 
-<div on:click={() => selectDocument(doc.id)}>...</div>
-```
+### 3. Modal-local temporary state
 
-**Parent (`Dashboard.svelte`):**
-```html
-<!-- The parent listens for 'on:documentSelected' -->
-<DocumentUpload on:documentSelected={(e) => activeDocumentId = e.detail} />
-```
+The contract modal chat is intentionally ephemeral.
+
+[frontend/src/components/ContractChatPanel.svelte](/Users/2madeira/DEV/PROJECTS/amaterasu/frontend/src/components/ContractChatPanel.svelte) keeps its own local `messages`, `inputQuery`, and error state. When `documentId` changes or the modal is closed, the temporary contract chat is reset instead of being persisted into the main session history.
+
+## Component Communication
+
+The workspace still relies on standard Svelte props and custom events:
+
+* `Dashboard.svelte` passes session data, messages, and snapshot props down into the sidebar, explorer, and main chat components.
+* Child components dispatch events like `createSession`, `selectSession`, `send`, `selectNode`, `toggleNode`, and `openContract`.
+* `DocumentUpload.svelte` dispatches `documentsChanged` so the toolbar and dashboard can update the visible contract count without coupling the uploader to global app state.
 
 ## Routing
 
-Because this is a Single Page Application (SPA), navigating between pages (like going from Login to the Dashboard) does not require a full page reload from the server. Instead, JavaScript handles changing the view.
+Routing is handled by [frontend/src/lib/router.js](/Users/2madeira/DEV/PROJECTS/amaterasu/frontend/src/lib/router.js), not `svelte-routing`.
 
-This project uses the `svelte-routing` library.
+It provides:
 
-### 1. Defining Routes
-Routes are defined in the root component, `src/App.svelte`. The `<Router>` component wraps the application, and `<Route>` components define which component should render for a specific URL path.
+* `currentPath`: a writable store that tracks `window.location.pathname`;
+* `navigate(path, { replace })`: a lightweight helper for login and dashboard redirects.
 
-```html
-<script>
-  import { Router, Route } from "svelte-routing";
-  import Login from "./pages/Login.svelte";
-  import Dashboard from "./pages/Dashboard.svelte";
-</script>
-
-<Router>
-  <!-- If the URL is '/', render the Login component -->
-  <Route path="/" component={Login} />
-  <!-- If the URL is '/dashboard', render the Dashboard component -->
-  <Route path="/dashboard" component={Dashboard} />
-</Router>
-```
-
-### 2. Navigating Programmatically
-Often, you need to change the route after an action completes (e.g., after a successful login). We use the `navigate` function provided by `svelte-routing`.
-
-```html
-<script>
-  import { navigate } from "svelte-routing";
-  import api from "../lib/api";
-
-  async function handleSubmit() {
-    // ... logic to log in ...
-
-    // Redirect the user to the dashboard without reloading the page
-    // { replace: true } means this navigation replaces the current history entry,
-    // so hitting the 'Back' button won't take them back to the login page.
-    navigate("/dashboard", { replace: true });
-  }
-</script>
-```
+`src/App.svelte` renders either the login page or the dashboard based on `currentPath`, and redirects unknown paths back to `/`.

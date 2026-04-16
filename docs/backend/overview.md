@@ -1,6 +1,9 @@
 # Backend Overview
 
-The backend serves as the core API and orchestration layer of the application. It handles user authentication, document management, database interactions, and coordinates the AI Agent for the RAG pipeline.
+The backend serves as the API, persistence layer, and workspace orchestration layer for the application. It now supports two distinct chat modes:
+
+* a persistent main workspace chat stored in chat sessions with saved explorer snapshots;
+* a temporary contract-scoped chat used inside the contract modal without writing to session history.
 
 ## Technologies Used
 
@@ -15,14 +18,46 @@ The backend serves as the core API and orchestration layer of the application. I
 
 The backend code is organized following a standard full-stack FastAPI template structure:
 
-* **`app/api/`:** Contains the API routers and endpoints, organized by version (e.g., `api_v1`). Includes route definitions for auth, documents, and chat.
+* **`app/api/`:** Contains the API routers and endpoints, including auth, documents, legacy chat, and workspace chat sessions.
 * **`app/core/`:** Contains core configuration settings (e.g., environment variables management via Pydantic) and security utilities.
-* **`app/crud/`:** Contains CRUD (Create, Read, Update, Delete) operations for interacting with the database models.
+* **`app/crud/`:** Contains CRUD operations for documents, users, and persistent workspace sessions/messages.
 * **`app/db/`:** Database connection setup, session management, and Base classes for SQLAlchemy models.
-* **`app/models/`:** SQLAlchemy ORM models defining the database schema.
+* **`app/models/`:** SQLAlchemy ORM models for users, documents, chat sessions, and chat messages.
 * **`app/schemas/`:** Pydantic models used for data validation, serialization, and deserialization of API requests and responses.
-* **`app/services/`:** Contains business logic and integration code, such as the LangChain RAG pipeline (`rag.py`) and LLM integrations (`llm.py`).
+* **`app/services/`:** Contains business logic and integration code, including the RAG pipeline (`rag.py`), LLM integrations (`llm.py`), and workspace response shaping (`workspace.py`).
 * **`main.py`:** The entry point of the FastAPI application.
+
+## Persistent Workspace Entities
+
+The v1 workspace refactor introduces two new persistent entities:
+
+* `chat_sessions`
+  * owned by a user;
+  * stores title and explorer snapshot fields (`result_tree_json`, `selected_node_id`, `expanded_node_ids`, `view_mode`);
+  * tracks `created_at`, `updated_at`, and `last_message_at`.
+* `chat_messages`
+  * belongs to a `chat_session`;
+  * stores `role`, `content`, optional `meta`, and `created_at`.
+
+For the first iteration, the workspace snapshot is stored directly on `chat_sessions` rather than in a dedicated `workspace_snapshots` table.
+
+## Current Flow Boundaries
+
+The backend now exposes separate flows for:
+
+* **Main workspace chat:** `GET/POST /chat-sessions`, `GET /chat-sessions/{id}`, `POST /chat-sessions/{id}/messages`, `PATCH /chat-sessions/{id}/snapshot`.
+* **Document management:** upload, confirm, list, preview, and temporary contract chat under `/documents`.
+* **Legacy chat endpoint:** `/chat` still exists, but the dashboard is built around `/chat-sessions`.
+
+## Search Response Shaping
+
+`app/services/workspace.py` is responsible for shaping the main workspace response into:
+
+* an `assistant_message`;
+* a normalized `result_tree` for the explorer;
+* basic `search_metadata`.
+
+The current implementation uses a flat contract list as the default grouping mode. This is the planned fallback until supplier-based grouping is available.
 
 ## Detailed Layer Documentation
 

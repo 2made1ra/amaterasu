@@ -1,8 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from app.api import deps
 from app.crud import crud_document
-from app.schemas.document import DocumentResponse
+from app.schemas.document import ContractChatRequest, ContractChatResponse, DocumentResponse
+from app.services import workspace
 import os
 import shutil
 import uuid
@@ -119,3 +121,39 @@ def get_documents(
     limit: int = 100
 ):
     return crud_document.get_documents_by_owner(db, current_user.id, skip, limit)
+
+
+@router.get("/{document_id}/preview")
+def preview_document(
+    document_id: int,
+    db: Session = Depends(deps.get_db),
+    current_user=Depends(deps.get_current_user),
+):
+    document = crud_document.get_document_for_owner(db, document_id, current_user.id)
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+    if not os.path.exists(document.file_path):
+        raise HTTPException(status_code=404, detail="Document file is missing")
+    return FileResponse(document.file_path, media_type="application/pdf", filename=document.title)
+
+
+@router.post("/{document_id}/chat", response_model=ContractChatResponse)
+def chat_about_document(
+    document_id: int,
+    request: ContractChatRequest,
+    db: Session = Depends(deps.get_db),
+    current_user=Depends(deps.get_current_user),
+):
+    query = request.query.strip()
+    if not query:
+        raise HTTPException(status_code=400, detail="Query must not be empty")
+
+    document = crud_document.get_document_for_owner(db, document_id, current_user.id)
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    try:
+        answer = workspace.build_contract_chat_reply(db, current_user.id, document_id, query)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Document not found")
+    return {"answer": answer}
