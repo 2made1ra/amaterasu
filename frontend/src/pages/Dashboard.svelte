@@ -24,6 +24,7 @@
   let isSessionListLoading = false;
   let isSessionLoading = false;
   let isSending = false;
+  let deletingSessionId = null;
   let sessionError = "";
   let agentError = "";
   let explorerError = "";
@@ -50,6 +51,16 @@
     workspaceSnapshot.set(detail.snapshot || createEmptySnapshot());
     agentError = "";
     explorerError = "";
+  }
+
+  function clearActiveSession() {
+    activeSessionId.set(null);
+    activeSessionTitle.set("New workspace");
+    activeSessionMessages.set([]);
+    workspaceSnapshot.set(createEmptySnapshot());
+    agentError = "";
+    explorerError = "";
+    activeContract = null;
   }
 
   function upsertSessionSummary(detail, fallbackCount = 0) {
@@ -138,6 +149,38 @@
       await createSession({ activate: true });
     } catch (err) {
       sessionError = err.response?.data?.detail || "Could not create a new session.";
+    }
+  }
+
+  async function handleDeleteSession(event) {
+    const sessionId = event.detail.sessionId;
+    const sessionTitle = event.detail.title || "this chat";
+
+    if (!sessionId || deletingSessionId) return;
+
+    const confirmed = window.confirm(`Delete "${sessionTitle}" from chat history? This cannot be undone.`);
+    if (!confirmed) return;
+
+    deletingSessionId = sessionId;
+    sessionError = "";
+
+    try {
+      await api.delete(`/chat-sessions/${sessionId}`);
+
+      const currentSessions = get(sessions);
+      const remainingSessions = currentSessions.filter((session) => session.id !== sessionId);
+      sessions.set(remainingSessions);
+
+      if (get(activeSessionId) === sessionId) {
+        clearActiveSession();
+        if (remainingSessions.length > 0) {
+          await loadSession(remainingSessions[0].id);
+        }
+      }
+    } catch (err) {
+      sessionError = err.response?.data?.detail || "Could not delete the selected session.";
+    } finally {
+      deletingSessionId = null;
     }
   }
 
@@ -268,8 +311,11 @@
             activeSessionId={$activeSessionId}
             isLoading={isSessionListLoading}
             errorMessage={sessionError}
+            {deletingSessionId}
+            disableActions={isSessionLoading || isSending}
             on:createSession={handleCreateSession}
             on:selectSession={(event) => loadSession(event.detail.sessionId)}
+            on:deleteSession={handleDeleteSession}
           />
         </div>
 

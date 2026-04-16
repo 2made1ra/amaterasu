@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
 
 from app.api import deps
@@ -78,6 +78,20 @@ def get_chat_session(
     if not session:
         raise HTTPException(status_code=404, detail="Chat session not found")
     return _build_detail(session)
+
+
+@router.delete("/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_chat_session(
+    session_id: int,
+    db: Session = Depends(deps.get_db),
+    current_user=Depends(deps.get_current_user),
+):
+    session = crud_chat_session.get_session_for_owner(db, session_id, current_user.id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Chat session not found")
+
+    crud_chat_session.delete_session(db, session)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post("/{session_id}/messages", response_model=SessionMessageCreateResponse)

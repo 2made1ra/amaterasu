@@ -31,6 +31,7 @@ These endpoints back the main three-panel workspace.
 * **`GET /chat-sessions/`**: List the current user's saved main chat sessions.
 * **`POST /chat-sessions/`**: Create a new main workspace session.
 * **`GET /chat-sessions/{id}`**: Load a session's messages and persisted explorer snapshot.
+* **`DELETE /chat-sessions/{id}`**: Delete a saved main workspace session and its persisted history.
 * **`POST /chat-sessions/{id}/messages`**: Send a message to the main session.
   * **Payload:** `{ "query": "..." }`
   * **Response:** returns the assistant message, the updated snapshot, the current session title, and basic search metadata.

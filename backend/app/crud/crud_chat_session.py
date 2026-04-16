@@ -45,6 +45,11 @@ def get_session_for_owner(db: Session, session_id: int, owner_id: int) -> ChatSe
     )
 
 
+def delete_session(db: Session, session: ChatSession) -> None:
+    db.delete(session)
+    db.commit()
+
+
 def create_message(
     db: Session,
     session: ChatSession,
