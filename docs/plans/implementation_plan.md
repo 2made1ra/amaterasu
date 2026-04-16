@@ -11,9 +11,9 @@ Tags: backend, async, ingestion, rag
 This document captures the practical implementation plan for the backend portion of hybrid contract search based on [PLAN.md](../../PLAN.md) and the additional task-decomposition rules for working with an AI agent.
 
 This document is intentionally focused on phases 1-4:
-- PostgreSQL and the basic API
-- the asynchronous worker
-- manual confirmation and Qdrant indexing
+- PostgreSQL, the basic API, and batch-aware ingestion metadata
+- the asynchronous worker and controlled bulk ingestion
+- manual confirmation, trusted bulk auto-approval, and Qdrant indexing
 - search orchestration
 
 The phases covering cron notifications and the executive dashboard should be moved into a separate plan after the ingestion and retrieval flow is stabilized.
@@ -25,6 +25,7 @@ At the time this plan was prepared, the repository already contains a working bu
 - `backend/app/api/api_v1/endpoints/documents.py` performs uploads synchronously and tries to run extraction and indexing inside the request cycle.
 - `backend/app/models/document.py` stores only the simplified `PENDING` / `CONFIRMED` status pair, without an explicit lifecycle for ingestion, review, and indexing.
 - `backend/app/services/rag.py` works with a single `contracts` collection rather than the two-layer `contract_summaries` and `contract_chunks` model.
+- The project does not yet have a controlled bulk-ingestion path with `batch_id`, queue priority, or trusted-import flags.
 - The project does not yet have the target `Celery + Redis` worker pipeline.
 - The project does not yet have the target PostgreSQL schema for `documents`, `contract_facts`, and `extraction_runs`.
 - The project already has a basic `/chat`, but it does not include a query router or a separation between SQL search and summary-first retrieval.
@@ -62,6 +63,14 @@ As a result, implementation should not start "from scratch." It should evolve th
 - Do not touch Qdrant until Phase 2 is complete.
 - Do not touch the query router until indexing is complete and stable.
 
+### 3.5. Controlled bulk ingestion only
+
+- Do not implement browser-based multi-upload for large batches.
+- Keep one file per upload request, even for bulk imports.
+- Use the same technical path for the initial archive import and recurring quarterly imports.
+- Enforce a hard limit of 50 documents per bulk batch.
+- Prefer deriving batch progress from document rows keyed by `batch_id` before introducing a dedicated batches table.
+
 ## 4. Delivery Strategy
 
 Each sub-plan must define the following:
@@ -87,7 +96,7 @@ This document intentionally excludes:
 
 ### Phase 1. Foundation
 
-**Goal:** create the PostgreSQL schema and lightweight upload/status API endpoints without vectors and without LLM-based search.
+**Goal:** create the PostgreSQL schema and lightweight upload/status API endpoints without vectors and without LLM-based search, while preparing the system for controlled bulk ingestion.
 
 #### Phase 1.1. PostgreSQL schema
 
@@ -99,7 +108,7 @@ This document intentionally excludes:
 
 **Prompt**
 
-> Write SQLAlchemy (async) models and Alembic migrations for the `documents`, `contract_facts` tables using `JSONB`, and `extraction_runs`. Do not implement anything related to vectors or search.
+> Write SQLAlchemy (async) models and Alembic migrations for the `documents`, `contract_facts` tables using `JSONB`, and `extraction_runs`. Prepare the schema for controlled bulk ingestion with `batch_id`, ingestion source, queue priority, and optional trusted-import flags. Do not implement anything related to vectors or search.
 
 **Implementation notes for this repository**
 
@@ -107,10 +116,11 @@ This document intentionally excludes:
 - Introduce separate statuses at minimum for review, processing, and indexing.
 - Do not rely on `Base.metadata.create_all(...)` as the primary schema mechanism.
 - Prepare the schema to support multiple extraction runs per document.
+- Add nullable batch-ingestion metadata rather than a separate batches table in the first pass.
 
 **Expected result**
 
-- The `documents` table stores file metadata, owner, current statuses, active extraction version, and last error.
+- The `documents` table stores file metadata, owner, current statuses, active extraction version, last error, and batch-ingestion metadata.
 - The `contract_facts` table stores extracted JSON facts and extraction versioning.
 - The `extraction_runs` table stores processing attempts, timestamps, status, and error details.
 
@@ -118,6 +128,7 @@ This document intentionally excludes:
 
 - A test for successful `alembic upgrade head`.
 - A test confirming that the tables and key columns are created.
+- A test confirming that batch-related columns are created with the expected nullability.
 
 **Manual verification**
 
@@ -139,29 +150,35 @@ This document intentionally excludes:
 
 **Prompt**
 
-> Implement `POST /documents/upload` in FastAPI. It must only save the file to disk/S3, create a database record with `PENDING_REVIEW` and `QUEUED`, and return `200 OK`. Mock asynchronous work for now with a placeholder function using `pass`.
+> Implement `POST /documents/upload` in FastAPI. It must validate and save one file to disk/S3, create a database record with `PENDING_REVIEW` and `QUEUED`, accept optional service metadata for controlled bulk ingestion, and return `200 OK`. Mock asynchronous work for now with a placeholder function using `pass`.
 
 **Implementation notes for this repository**
 
 - Remove heavy PDF processing from the request cycle.
 - Preserve compatibility with the current auth/deps chain.
 - If S3 is not connected yet, use local file storage as the baseline.
+- Keep the endpoint one-file-per-request; the future bulk importer must call it repeatedly rather than uploading arrays of files.
+- Validate file type and size at this boundary.
 
 **Expected result**
 
 - Upload returns quickly and deterministically.
 - A document record is created in the database with the initial statuses.
 - The file is saved without attempting parsing or indexing inside the request.
+- Optional trusted-ingestion metadata can be persisted without changing the single-file request shape.
 
 **Basic test**
 
 - An API test for `POST /documents/upload` with a PDF file.
 - A check that the record is created and the statuses are set correctly.
+- A test for invalid file type or file-size rejection.
+- A test confirming that optional batch metadata is persisted when provided by the service path.
 
 **Manual verification**
 
 - Confirm that the endpoint does not call RAG, LLM, or Qdrant code.
 - Confirm that the file path is persisted correctly.
+- Confirm that the endpoint still behaves as a single-document upload even when batch metadata is present.
 
 **Exit gate**
 
@@ -183,30 +200,34 @@ This document intentionally excludes:
 - The response should support frontend polling.
 - Explicit lifecycle and error fields are required.
 - Return `404` for a missing document or a document owned by another user.
+- Include batch metadata when present so operational tooling can link a document back to its batch.
 
 **Expected result**
 
 - The endpoint returns document metadata, statuses, and facts.
 - If facts do not exist yet, the response remains valid and predictable.
+- Batch-linked documents expose their batch metadata cleanly.
 
 **Basic test**
 
 - An API test for successful document retrieval.
 - An API test for `404`.
+- An API test confirming batch metadata is serialized when present.
 
 **Manual verification**
 
 - Confirm that the response is suitable for UI polling.
 - Confirm that JSON facts serialize cleanly.
+- Confirm that the contract is stable enough for a future batch progress screen.
 
 **Exit gate**
 
 - A polling-ready API contract exists.
 - Phase 1 works without the vector layer and without LLM dependencies in the synchronous API.
 
-### Phase 2. Background Processing
+### Phase 2. Background Processing And Controlled Bulk Ingestion
 
-**Goal:** move PDF parsing and fact extraction into a resilient asynchronous worker pipeline.
+**Goal:** move PDF parsing and fact extraction into a resilient asynchronous worker pipeline, while adding a controlled bulk-ingestion path that uses the same backend contract as single uploads.
 
 #### Phase 2.1. Celery + Redis wiring
 
@@ -217,36 +238,82 @@ This document intentionally excludes:
 
 **Prompt**
 
-> Configure `Celery + Redis` for FastAPI. Add a worker entrypoint. Replace the mock in `POST /documents/upload` with a call to the Celery task `process_document.delay(doc_id)`.
+> Configure `Celery + Redis` for FastAPI. Add a worker entrypoint. Replace the mock in `POST /documents/upload` with a call to the Celery task `process_document.delay(doc_id)`, and route UI uploads and bulk imports through separate queues.
 
 **Implementation notes for this repository**
 
 - Define the Celery app, task module, and startup/dev instructions separately.
 - Log the enqueue event and task id explicitly.
 - Do not mix worker code into the request handler.
+- Reserve worker capacity for the high-priority queue so UI uploads do not starve behind bulk traffic.
 
 **Expected result**
 
 - Upload enqueues a task.
 - The worker can run independently from the API.
 - Logs clearly show the path `QUEUED -> task received`.
+- Queue routing is explicit for high-priority versus bulk work.
 
 **Basic test**
 
 - A test confirming that upload calls `process_document.delay`.
 - A smoke test for worker startup in the local environment.
+- A test confirming that queue selection changes based on upload origin or priority metadata.
 
 **Manual verification**
 
 - Check the Redis configuration and worker startup flow.
 - Confirm that the API still accepts uploads if the worker is down.
+- Confirm that a bulk queue flood does not consume all worker slots reserved for UI traffic.
 
 **Exit gate**
 
 - The queue is connected.
 - Task invocation is asynchronous and visible in logs.
 
-#### Phase 2.2. Layout analysis
+#### Phase 2.2. Bulk importer and batch status API
+
+**Input for agent**
+
+- Only the controlled bulk-ingestion path and aggregated progress reporting.
+- Do not include Qdrant or query-routing logic.
+
+**Prompt**
+
+> Implement a Python bulk-ingestion CLI or service job that scans a folder or S3 location, splits the input into batches of at most 50 documents, uploads files one by one through `POST /documents/upload`, and attaches `batch_id`, low priority, and optional trusted-import metadata. Also implement `GET /batches/{batch_id}` so it returns aggregate counts by document status.
+
+**Implementation notes for this repository**
+
+- The initial archive import and recurring quarterly imports must use the same code path.
+- Keep the importer thin: orchestration and batching in the CLI, processing in the backend.
+- Prefer deriving batch progress from `documents.batch_id` and status fields before adding any new batch tables.
+- If S3 support is not ready, implement the folder-based importer first and keep the S3 adapter behind a clear abstraction.
+
+**Expected result**
+
+- A large input set is automatically split into 50-document batches.
+- Each file is uploaded individually through the existing API contract.
+- Operators can query one `batch_id` and see how many documents are queued, parsing, ready for review, failed, approved, or indexed.
+
+**Basic test**
+
+- A test confirming that 120 input files are split into three batches.
+- A test confirming that the importer sends one file per request and propagates `batch_id`.
+- An API test for `GET /batches/{batch_id}` aggregated counters.
+
+**Manual verification**
+
+- Run the importer against a small local folder and inspect the created `batch_id` values.
+- Confirm that a batch with fewer than 50 files still works without special handling.
+- Confirm that the batch status response is suitable for a progress-bar UI.
+
+**Exit gate**
+
+- Controlled bulk ingestion exists without introducing browser multi-upload.
+- A batch larger than 50 files is always split before submission.
+- Batch progress is visible through the API.
+
+#### Phase 2.3. Layout analysis
 
 **Input for agent**
 
@@ -284,7 +351,7 @@ This document intentionally excludes:
 - Parsing runs in the worker.
 - Logs exist for parsing start, completion, and failure.
 
-#### Phase 2.3. Fact extraction
+#### Phase 2.4. Fact extraction and rate limiting
 
 **Input for agent**
 
@@ -293,38 +360,43 @@ This document intentionally excludes:
 
 **Prompt**
 
-> Write a fact extraction service. Use a Pydantic schema to validate the response from OpenAI. Input is Markdown from DocLing. Output is JSON. Save the JSON into `contract_facts` in Postgres and move the status to `FACTS_READY`.
+> Write a fact extraction service. Use a Pydantic schema to validate the response from OpenAI. Input is Markdown from DocLing. Output is JSON. Save the JSON into `contract_facts` in Postgres, apply task-level rate limiting around provider calls, and move the status to `FACTS_READY`.
 
 **Implementation notes for this repository**
 
 - Separate prompt construction, LLM client calls, and validation.
 - Persist both the extraction run and the resulting facts.
 - Treat validation errors as a separate class of errors rather than mixing them with transport/runtime failures.
+- Make rate limiting explicit in worker/task configuration so batch imports do not trigger avoidable provider `429` failures.
 
 **Expected result**
 
 - Valid LLM output is stored in `contract_facts`.
 - Invalid responses do not corrupt the database and leave a diagnostic trail.
 - The document reaches `FACTS_READY`.
+- Provider throttling is applied in a predictable, testable way.
 
 **Basic test**
 
 - A test for successful validation and fact persistence.
 - A test for an invalid LLM payload.
+- A test confirming rate-limit configuration for the extraction task.
 
 **Manual verification**
 
 - Inspect the stored JSON for one real document.
 - Check the status log `QUEUED -> PARSING -> FACTS_READY`.
+- Observe that batch processing does not hammer the provider uncontrollably.
 
 **Exit gate**
 
 - After upload, the document reaches `FACTS_READY` in the background.
+- Batch uploads also progress to `FACTS_READY` without overwhelming provider limits.
 - No Qdrant integration exists at this step yet.
 
-### Phase 3. Approval And Vector Layer
+### Phase 3. Approval, Trusted Bulk Auto-Approval, And Vector Layer
 
-**Goal:** make manual confirmation a mandatory trust boundary and index only approved documents.
+**Goal:** make manual confirmation the default trust boundary, add a traceable trusted bulk auto-approval path, and index only approved documents.
 
 #### Phase 3.1. Confirmation API
 
@@ -342,6 +414,7 @@ This document intentionally excludes:
 - Confirmation should operate on facts in `contract_facts`, not on the old `extracted_deadline` model.
 - If the data model allows it, separate draft facts from the approved snapshot explicitly.
 - The endpoint must not index the document synchronously.
+- Documents flagged for trusted bulk auto-approval must still remain outside this manual path unless a user explicitly reopens them for review.
 
 **Expected result**
 
@@ -360,9 +433,49 @@ This document intentionally excludes:
 
 **Exit gate**
 
-- Manual approval is required before indexing.
+- Manual approval works as the default path before indexing.
 
-#### Phase 3.2. Qdrant setup
+#### Phase 3.2. Trusted bulk auto-approval
+
+**Input for agent**
+
+- Only the trusted-import approval bypass.
+- Do not include full indexing logic yet.
+
+**Prompt**
+
+> Implement a trusted bulk auto-approval flow. If a document came from the controlled bulk-ingestion path with the trusted-import flag and its extracted facts passed validation, allow it to move from `FACTS_READY` to `APPROVED` automatically, mark it as auto-approved or auto-indexed, and enqueue indexing.
+
+**Implementation notes for this repository**
+
+- This flow must never apply to normal UI uploads.
+- Persist an explicit marker so auto-approved documents are distinguishable from manually confirmed ones.
+- Keep the trusted decision auditable in logs and visible in API responses.
+
+**Expected result**
+
+- Trusted bulk documents can progress without manual UI confirmation.
+- Normal documents still stop at the manual review boundary.
+- Auto-approved documents are traceable.
+
+**Basic test**
+
+- A test confirming that a trusted bulk document moves forward automatically after `FACTS_READY`.
+- A test confirming that a normal document still requires manual confirmation.
+- A test confirming that the trusted marker is persisted.
+
+**Manual verification**
+
+- Process one trusted bulk document and one normal document side by side.
+- Confirm that only the trusted document bypasses the review screen.
+- Confirm that logs clearly show why the bypass happened.
+
+**Exit gate**
+
+- Trusted bulk bypass works only for explicitly flagged imports.
+- Manual review remains the default for normal uploads.
+
+#### Phase 3.3. Qdrant setup
 
 **Input for agent**
 
@@ -397,7 +510,7 @@ This document intentionally excludes:
 
 - Qdrant is ready for two-layer indexing.
 
-#### Phase 3.3. Idempotent indexing
+#### Phase 3.4. Idempotent indexing
 
 **Input for agent**
 
@@ -406,13 +519,14 @@ This document intentionally excludes:
 
 **Prompt**
 
-> Implement the Celery task `index_document`. Step 1: generate a summary with the LLM. Step 2: split the Markdown into chunks. Step 3: delete old vectors by `document_id`. Step 4: write new vectors into both collections. Move the status to `INDEXED`.
+> Implement the Celery task `index_document`. Step 1: generate a summary with the LLM. Step 2: split the Markdown into chunks. Step 3: delete old vectors by `document_id`. Step 4: write new vectors into both collections. Move the status to `INDEXED`. Only index documents that were manually approved or approved through the trusted bulk flow.
 
 **Implementation notes for this repository**
 
 - Indexing must use approved data only.
 - Summaries and chunks are indexed separately, but within one orchestration flow.
 - Deleting old points before writing new ones is mandatory for idempotency.
+- Preserve the distinction between manual approval and trusted bulk auto-approval in document metadata.
 
 **Expected result**
 
@@ -433,6 +547,7 @@ This document intentionally excludes:
 **Exit gate**
 
 - Approved-only indexing works.
+- Trusted bulk-approved indexing works without bypassing auditability.
 - Re-indexing is safe.
 
 ### Phase 4. Query Orchestration
@@ -551,15 +666,17 @@ This document intentionally excludes:
 5. Phase 2.1
 6. Phase 2.2
 7. Phase 2.3
-8. Manual verification of Phase 2
-9. Phase 3.1
-10. Phase 3.2
-11. Phase 3.3
-12. Manual verification of Phase 3
-13. Phase 4.1
-14. Phase 4.2
-15. Phase 4.3
-16. Manual verification of Phase 4
+8. Phase 2.4
+9. Manual verification of Phase 2
+10. Phase 3.1
+11. Phase 3.2
+12. Phase 3.3
+13. Phase 3.4
+14. Manual verification of Phase 3
+15. Phase 4.1
+16. Phase 4.2
+17. Phase 4.3
+18. Manual verification of Phase 4
 
 Breaking this order is not recommended, because it minimizes simultaneous changes to the schema, background processing, and retrieval orchestration.
 
@@ -571,11 +688,13 @@ At least one basic test is required for each sub-plan:
 - `1.2` upload API integration test
 - `1.3` document status read test
 - `2.1` enqueue test for Celery task dispatch
-- `2.2` parser service test
-- `2.3` facts extraction validation test
+- `2.2` bulk importer and batch status API test
+- `2.3` parser service test
+- `2.4` facts extraction validation and rate-limit test
 - `3.1` confirm API test
-- `3.2` Qdrant collection setup test
-- `3.3` idempotent indexing test
+- `3.2` trusted bulk auto-approval test
+- `3.3` Qdrant collection setup test
+- `3.4` idempotent indexing test
 - `4.1` query router classification test
 - `4.2` SQL search filter test
 - `4.3` summary-then-chunks filtering test
@@ -593,9 +712,13 @@ At least one basic test is required for each sub-plan:
 This plan is complete when:
 
 - `POST /documents/upload` no longer performs heavy processing synchronously.
+- The same backend upload path supports both single uploads and controlled bulk ingestion.
+- Bulk imports are always split into batches of at most 50 documents.
+- Batch progress can be queried from the API.
 - Document ingestion moves through explicit statuses and background tasks.
 - Extracted facts are persisted to PostgreSQL before any indexing begins.
-- Manual confirmation is required before writing to Qdrant.
+- Manual confirmation remains the default before writing to Qdrant.
+- Trusted bulk auto-approval is explicit, limited, and auditable.
 - Qdrant uses two collections: `contract_summaries` and `contract_chunks`.
 - Re-indexing by `document_id` is idempotent.
 - The query router controls the choice between SQL, summaries, and chunk retrieval.
