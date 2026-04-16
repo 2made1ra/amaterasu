@@ -1,126 +1,155 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
-from fastapi.responses import FileResponse
-from sqlalchemy.orm import Session
-from app.api import deps
-from app.crud import crud_document
-from app.schemas.document import ContractChatRequest, ContractChatResponse, DocumentResponse
-from app.services import workspace
+import logging
 import os
 import shutil
 import uuid
-import logging
-from datetime import datetime
+from pathlib import Path
+
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi.responses import FileResponse
+from sqlalchemy.orm import Session
+
+from app.api import deps
+from app.core.config import settings
+from app.crud import crud_document
+from app.models.document import IngestionSource, QueuePriority
+from app.schemas.document import (
+    ContractChatRequest,
+    ContractChatResponse,
+    DocumentDetailResponse,
+    DocumentResponse,
+    UploadDocumentResponse,
+)
+from app.services import workspace
+
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-UPLOAD_DIR = "uploads"
-os.makedirs(UPLOAD_DIR, exist_ok=True)
+ALLOWED_CONTENT_TYPES = {"application/pdf"}
 
 
-def _load_rag_service():
-    try:
-        from app.services import rag
-        return rag
-    except ImportError:
-        return None
+def _resolve_upload_dir() -> Path:
+    upload_dir = Path(settings.UPLOAD_DIR)
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    return upload_dir
 
-@router.post("/upload", response_model=dict)
-def upload_document(
-    file: UploadFile = File(...),
-    db: Session = Depends(deps.get_db),
-    current_user = Depends(deps.get_current_user)
-):
-    """
-    Step 1: Upload PDF, parse, and extract metadata (Human-in-the-Loop start).
-    Returns temporary document id and extracted metadata.
-    """
-    if not file.filename.endswith(".pdf"):
+
+def _validate_pdf_upload(file: UploadFile) -> int:
+    content_type = (file.content_type or "").lower()
+    filename = file.filename or ""
+    if content_type not in ALLOWED_CONTENT_TYPES and not filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files are allowed")
 
-    # Sanitize filename by generating a UUID
-    safe_filename = f"{uuid.uuid4()}.pdf"
-    file_path = os.path.join(UPLOAD_DIR, safe_filename)
+    file.file.seek(0, os.SEEK_END)
+    file_size = file.file.tell()
+    file.file.seek(0)
+    if file_size > settings.MAX_UPLOAD_SIZE_BYTES:
+        raise HTTPException(status_code=400, detail="File is too large")
 
-    with open(file_path, "wb") as buffer:
+    return file_size
+
+
+def _dispatch_document_processing(document_id: int, queue_priority: QueuePriority | None) -> None:
+    logger.info(
+        "document_processing_placeholder_queued document_id=%s queue_priority=%s",
+        document_id,
+        queue_priority.value if queue_priority else None,
+    )
+    pass
+
+
+@router.post("/upload", response_model=UploadDocumentResponse)
+def upload_document(
+    file: UploadFile = File(...),
+    batch_id: str | None = Form(default=None),
+    ingestion_source: IngestionSource | None = Form(default=None),
+    queue_priority: QueuePriority | None = Form(default=None),
+    trusted_import: bool | None = Form(default=None),
+    db: Session = Depends(deps.get_db),
+    current_user=Depends(deps.get_current_user),
+):
+    file_size = _validate_pdf_upload(file)
+
+    safe_filename = f"{uuid.uuid4()}.pdf"
+    file_path = _resolve_upload_dir() / safe_filename
+
+    with file_path.open("wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
 
-    # Create pending document in DB
-    doc = crud_document.create_document(db, title=file.filename, file_path=file_path, owner_id=current_user.id)
+    document = crud_document.create_document(
+        db,
+        title=file.filename or safe_filename,
+        file_path=str(file_path),
+        owner_id=current_user.id,
+        content_type=file.content_type or "application/pdf",
+        file_size_bytes=file_size,
+        batch_id=batch_id,
+        ingestion_source=ingestion_source,
+        queue_priority=queue_priority,
+        trusted_import=trusted_import,
+    )
 
-    deadline = None
-    message = "Please review and confirm the extracted deadline."
-    rag = _load_rag_service()
-
-    # Optional metadata extraction. Upload should succeed even if RAG stack is unavailable.
-    if rag is None:
-        logger.warning("Skipping metadata extraction because RAG service cannot be imported.")
-        message = "Document uploaded. Metadata extraction is currently unavailable."
-    else:
-        try:
-            docs = rag.process_pdf(file_path)
-            full_text = " ".join([d.page_content for d in docs])
-            metadata = rag.extract_metadata_from_text(full_text)
-            try:
-                deadline = datetime.strptime(metadata.get("deadline"), "%Y-%m-%d")
-            except (TypeError, ValueError):
-                deadline = None
-        except rag.RagDependencyError as exc:
-            logger.warning("Skipping metadata extraction due to missing RAG dependency: %s", exc)
-            message = "Document uploaded. Metadata extraction is currently unavailable."
-        except Exception:
-            logger.exception("Unexpected metadata extraction failure for document %s", doc.id)
-            message = "Document uploaded, but metadata extraction failed. You can continue to confirmation."
+    _dispatch_document_processing(document.id, queue_priority)
 
     return {
-        "document_id": doc.id,
-        "extracted_deadline": deadline,
-        "message": message
+        "document_id": document.id,
+        "review_status": document.review_status,
+        "processing_status": document.processing_status,
+        "batch_id": document.batch_id,
+        "trusted_import": document.trusted_import,
+        "message": "Document uploaded and queued for asynchronous processing.",
     }
+
 
 @router.post("/{document_id}/confirm", response_model=DocumentResponse)
 def confirm_document(
     document_id: int,
-    deadline: datetime = Form(None),
+    deadline: str | None = Form(None),
     db: Session = Depends(deps.get_db),
-    current_user = Depends(deps.get_current_user)
+    current_user=Depends(deps.get_current_user),
 ):
-    """
-    Step 2: Confirm metadata, save to vector store.
-    """
     doc = crud_document.get_document(db, document_id)
     if not doc or doc.owner_id != current_user.id:
         raise HTTPException(status_code=404, detail="Document not found")
 
-    # Update DB status
-    doc = crud_document.confirm_document(db, document_id, deadline)
+    if deadline:
+        logger.info("Ignoring legacy deadline confirmation payload for document %s during phase 1", document_id)
 
-    # Optional indexing. Do not block confirmation when RAG dependencies are unavailable.
-    rag = _load_rag_service()
-    if rag is None:
-        logger.warning("Skipping vector indexing because RAG service cannot be imported.")
-    else:
-        try:
-            docs = rag.process_pdf(doc.file_path)
-            rag.save_to_vectorstore(docs, doc.id, doc.owner_id)
-        except rag.RagDependencyError as exc:
-            logger.warning("Skipping vector indexing due to missing RAG dependency: %s", exc)
-        except Exception:
-            logger.exception(
-                "Vector indexing failed for document %s; document remains confirmed without RAG index.",
-                document_id,
-            )
-
+    doc = crud_document.confirm_document(db, document_id, None)
     return doc
+
 
 @router.get("/", response_model=list[DocumentResponse])
 def get_documents(
     db: Session = Depends(deps.get_db),
-    current_user = Depends(deps.get_current_user),
+    current_user=Depends(deps.get_current_user),
     skip: int = 0,
-    limit: int = 100
+    limit: int = 100,
 ):
     return crud_document.get_documents_by_owner(db, current_user.id, skip, limit)
+
+
+@router.get("/{document_id}", response_model=DocumentDetailResponse)
+def get_document_status(
+    document_id: int,
+    db: Session = Depends(deps.get_db),
+    current_user=Depends(deps.get_current_user),
+):
+    document = crud_document.get_document_for_owner(db, document_id, current_user.id)
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    facts = crud_document.get_active_contract_facts(db, document.id)
+    payload = DocumentResponse.model_validate(document).model_dump()
+    payload["facts"] = None
+    if facts is not None:
+        payload["facts"] = {
+            "extraction_version": facts.extraction_version,
+            "schema_version": facts.schema_version,
+            "facts": facts.facts,
+            "created_at": facts.created_at,
+        }
+    return payload
 
 
 @router.get("/{document_id}/preview")

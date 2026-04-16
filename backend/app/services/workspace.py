@@ -15,7 +15,7 @@ class WorkspaceQueryResult:
 
 
 def _document_to_result_node(document) -> dict:
-    badges = [document.status.value]
+    badges = [document.status]
     if document.extracted_deadline:
         badges.append(document.extracted_deadline.date().isoformat())
 
@@ -31,7 +31,7 @@ def _document_to_result_node(document) -> dict:
         "meta": {
             "deadline": document.extracted_deadline.isoformat() if document.extracted_deadline else None,
             "created_at": document.created_at.isoformat() if document.created_at else None,
-            "status": document.status.value,
+            "status": document.status,
         },
     }
 

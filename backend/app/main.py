@@ -1,11 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.api.api_v1.api import api_router
-from app.db.base import Base
-from app.db.session import engine
-
-# Create tables for Phase 1 without Alembic for speed/simplicity
-Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="AI RAG Assistant API")
 
