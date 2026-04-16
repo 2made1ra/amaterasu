@@ -28,6 +28,11 @@ class DocumentIndexingStatus(str, enum.Enum):
     FAILED = "FAILED"
 
 
+class DocumentApprovalSource(str, enum.Enum):
+    MANUAL = "MANUAL"
+    TRUSTED_IMPORT = "TRUSTED_IMPORT"
+
+
 class IngestionSource(str, enum.Enum):
     USER_UPLOAD = "USER_UPLOAD"
     BULK_IMPORT = "BULK_IMPORT"
@@ -65,6 +70,9 @@ class Document(Base):
     )
     active_extraction_version = Column(Integer, nullable=True)
     last_error = Column(String, nullable=True)
+    approval_source = Column(Enum(DocumentApprovalSource, native_enum=False), nullable=True)
+    approved_at = Column(DateTime, nullable=True)
+    approved_by_user_id = Column(Integer, nullable=True)
     batch_id = Column(String, nullable=True, index=True)
     ingestion_source = Column(Enum(IngestionSource, native_enum=False), nullable=True)
     queue_priority = Column(Enum(QueuePriority, native_enum=False), nullable=True)

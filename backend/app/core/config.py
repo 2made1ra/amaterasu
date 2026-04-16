@@ -17,6 +17,9 @@ class Settings(BaseSettings):
 
     QDRANT_HOST: str = os.getenv("QDRANT_HOST", "localhost")
     QDRANT_PORT: int = int(os.getenv("QDRANT_PORT", "6333"))
+    QDRANT_SUMMARY_COLLECTION: str = os.getenv("QDRANT_SUMMARY_COLLECTION", "contract_summaries")
+    QDRANT_CHUNK_COLLECTION: str = os.getenv("QDRANT_CHUNK_COLLECTION", "contract_chunks")
+    QDRANT_VECTOR_SIZE: int = int(os.getenv("QDRANT_VECTOR_SIZE", "384"))
     REDIS_URL: str = os.getenv("REDIS_URL", "redis://localhost:6379/0")
     CELERY_BROKER_URL: str = os.getenv("CELERY_BROKER_URL", REDIS_URL)
     CELERY_RESULT_BACKEND: str = os.getenv("CELERY_RESULT_BACKEND", REDIS_URL)
@@ -35,6 +38,8 @@ class Settings(BaseSettings):
     UPLOAD_DIR: str = os.getenv("UPLOAD_DIR", str(BACKEND_DIR / "uploads"))
     PARSED_MARKDOWN_DIR: str = os.getenv("PARSED_MARKDOWN_DIR", str(BACKEND_DIR / "artifacts" / "markdown"))
     MAX_UPLOAD_SIZE_BYTES: int = int(os.getenv("MAX_UPLOAD_SIZE_BYTES", str(20 * 1024 * 1024)))
+    INDEXING_CHUNK_SIZE: int = int(os.getenv("INDEXING_CHUNK_SIZE", "1000"))
+    INDEXING_CHUNK_OVERLAP: int = int(os.getenv("INDEXING_CHUNK_OVERLAP", "200"))
 
     model_config = SettingsConfigDict(case_sensitive=True)
 

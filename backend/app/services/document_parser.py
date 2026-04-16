@@ -46,11 +46,15 @@ def _build_markdown(pdf_path: Path) -> str:
 
 
 def _write_markdown_artifact(pdf_path: Path, markdown: str) -> Path:
-    artifact_root = Path(settings.PARSED_MARKDOWN_DIR)
-    artifact_root.mkdir(parents=True, exist_ok=True)
-    artifact_path = artifact_root / f"{pdf_path.stem}.md"
+    artifact_path = resolve_markdown_artifact_path(pdf_path)
     artifact_path.write_text(markdown, encoding="utf-8")
     return artifact_path
+
+
+def resolve_markdown_artifact_path(pdf_path: str | Path) -> Path:
+    artifact_root = Path(settings.PARSED_MARKDOWN_DIR)
+    artifact_root.mkdir(parents=True, exist_ok=True)
+    return artifact_root / f"{Path(pdf_path).stem}.md"
 
 
 def parse_pdf_to_markdown(pdf_path: str | Path) -> ParsedDocument:

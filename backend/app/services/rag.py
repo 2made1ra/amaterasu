@@ -2,7 +2,7 @@ import re
 from app.core.config import settings
 from app.services.llm import get_embeddings, get_llm
 
-COLLECTION_NAME = "contracts"
+COLLECTION_NAME = settings.QDRANT_CHUNK_COLLECTION
 
 class RagDependencyError(RuntimeError):
     """Raised when optional RAG dependencies are unavailable."""

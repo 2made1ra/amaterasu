@@ -4,6 +4,7 @@ from typing import Any, Optional
 from pydantic import BaseModel, ConfigDict
 
 from app.models.document import (
+    DocumentApprovalSource,
     DocumentIndexingStatus,
     DocumentProcessingStatus,
     DocumentReviewStatus,
@@ -42,6 +43,9 @@ class DocumentResponse(DocumentBase):
     indexing_status: DocumentIndexingStatus
     active_extraction_version: Optional[int]
     last_error: Optional[str]
+    approval_source: Optional[DocumentApprovalSource]
+    approved_at: Optional[datetime]
+    approved_by_user_id: Optional[int]
     batch_id: Optional[str]
     ingestion_source: Optional[IngestionSource]
     queue_priority: Optional[QueuePriority]
@@ -67,6 +71,12 @@ class UploadDocumentResponse(BaseModel):
     message: str
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class ConfirmDocumentRequest(BaseModel):
+    facts: Optional[dict[str, Any]] = None
+
+    model_config = ConfigDict(extra="forbid")
 
 
 class ContractChatRequest(BaseModel):

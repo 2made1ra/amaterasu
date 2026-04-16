@@ -2,17 +2,26 @@ import logging
 import os
 import shutil
 import uuid
+from json import JSONDecodeError, loads
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from app.api import deps
 from app.core.config import settings
 from app.crud import crud_document
-from app.models.document import IngestionSource, QueuePriority
+from app.models.document import (
+    DocumentApprovalSource,
+    DocumentIndexingStatus,
+    DocumentProcessingStatus,
+    DocumentReviewStatus,
+    IngestionSource,
+    QueuePriority,
+)
 from app.schemas.document import (
+    ConfirmDocumentRequest,
     ContractChatRequest,
     ContractChatResponse,
     DocumentDetailResponse,
@@ -20,7 +29,7 @@ from app.schemas.document import (
     UploadDocumentResponse,
 )
 from app.services import workspace
-from app.tasks.documents import process_document, select_document_queue
+from app.tasks.documents import enqueue_index_document, process_document, select_document_queue
 
 
 router = APIRouter()
@@ -137,21 +146,67 @@ def upload_document(
 
 
 @router.post("/{document_id}/confirm", response_model=DocumentResponse)
-def confirm_document(
+async def confirm_document(
     document_id: int,
-    deadline: str | None = Form(None),
+    request: Request,
     db: Session = Depends(deps.get_db),
     current_user=Depends(deps.get_current_user),
 ):
-    doc = crud_document.get_document(db, document_id)
-    if not doc or doc.owner_id != current_user.id:
+    document = crud_document.get_document_for_owner(db, document_id, current_user.id)
+    if not document:
         raise HTTPException(status_code=404, detail="Document not found")
 
-    if deadline:
-        logger.info("Ignoring legacy deadline confirmation payload for document %s during phase 1", document_id)
+    if document.processing_status != DocumentProcessingStatus.FACTS_READY:
+        raise HTTPException(status_code=409, detail="Document facts are not ready for review")
 
-    doc = crud_document.confirm_document(db, document_id, None)
-    return doc
+    if document.review_status != DocumentReviewStatus.PENDING_REVIEW:
+        raise HTTPException(status_code=409, detail="Document has already been reviewed")
+
+    payload_facts = None
+    content_type = request.headers.get("content-type", "")
+    if "application/json" in content_type:
+        body = await request.json()
+        payload = ConfirmDocumentRequest.model_validate(body or {})
+        payload_facts = payload.facts
+    else:
+        form = await request.form()
+        legacy_deadline = form.get("deadline")
+        facts_json = form.get("facts_json")
+        if legacy_deadline:
+            logger.info("Ignoring legacy deadline confirmation payload for document %s during phase 3", document_id)
+        if facts_json:
+            try:
+                payload_facts = loads(facts_json)
+            except JSONDecodeError as exc:
+                raise HTTPException(status_code=400, detail="facts_json must contain valid JSON") from exc
+
+    active_facts = crud_document.get_active_contract_facts(db, document.id)
+    if active_facts is None:
+        raise HTTPException(status_code=409, detail="Document facts are not available for confirmation")
+
+    if payload_facts is not None:
+        crud_document.upsert_contract_facts(
+            db,
+            document_id=document.id,
+            extraction_version=active_facts.extraction_version,
+            schema_version=active_facts.schema_version,
+            facts=payload_facts,
+        )
+
+    approved_document = crud_document.approve_document(
+        db,
+        document_id=document.id,
+        approval_source=DocumentApprovalSource.MANUAL,
+        approved_by_user_id=current_user.id,
+    )
+    async_result = enqueue_index_document(approved_document)
+    if async_result is not None:
+        approved_document = crud_document.update_document_indexing_status(
+            db,
+            approved_document.id,
+            DocumentIndexingStatus.QUEUED,
+        )
+    return approved_document
 
 
 @router.get("/", response_model=list[DocumentResponse])

@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.models.contract_fact import ContractFact
 from app.models.document import (
+    DocumentApprovalSource,
     Document,
     DocumentIndexingStatus,
     DocumentProcessingStatus,
@@ -68,6 +69,24 @@ def create_document(
     return db_obj
 
 
+def update_document_review_status(
+    db: Session,
+    document_id: int,
+    review_status: DocumentReviewStatus | str,
+):
+    db_obj = get_document(db, document_id)
+    if not db_obj:
+        return None
+
+    next_status = review_status if isinstance(review_status, DocumentReviewStatus) else DocumentReviewStatus(review_status)
+    previous_status = db_obj.review_status.value
+    db_obj.review_status = next_status
+    db.commit()
+    db.refresh(db_obj)
+    _log_status_transition(db_obj.id, "review_status", previous_status, db_obj.review_status.value)
+    return db_obj
+
+
 def update_document_processing_status(
     db: Session,
     document_id: int,
@@ -117,6 +136,36 @@ def mark_document_facts_ready(db: Session, document_id: int, extraction_version:
     return db_obj
 
 
+def update_document_indexing_status(
+    db: Session,
+    document_id: int,
+    indexing_status: DocumentIndexingStatus | str,
+    *,
+    last_error: str | None = None,
+):
+    db_obj = get_document(db, document_id)
+    if not db_obj:
+        return None
+
+    next_status = indexing_status if isinstance(indexing_status, DocumentIndexingStatus) else DocumentIndexingStatus(indexing_status)
+    previous_status = db_obj.indexing_status.value
+    db_obj.indexing_status = next_status
+    db_obj.last_error = last_error
+    db.commit()
+    db.refresh(db_obj)
+    _log_status_transition(db_obj.id, "indexing_status", previous_status, db_obj.indexing_status.value)
+    return db_obj
+
+
+def mark_document_indexing_failed(db: Session, document_id: int, error_message: str):
+    return update_document_indexing_status(
+        db,
+        document_id,
+        DocumentIndexingStatus.FAILED,
+        last_error=error_message,
+    )
+
+
 def get_document(db: Session, document_id: int):
     return db.query(Document).filter(Document.id == document_id).first()
 
@@ -150,13 +199,36 @@ def get_confirmed_documents_by_owner(db: Session, owner_id: int):
 
 
 def confirm_document(db: Session, document_id: int, deadline: datetime = None):
+    return approve_document(db, document_id=document_id, approval_source=DocumentApprovalSource.MANUAL)
+
+
+def approve_document(
+    db: Session,
+    *,
+    document_id: int,
+    approval_source: DocumentApprovalSource | str,
+    approved_by_user_id: int | None = None,
+):
     db_obj = get_document(db, document_id)
-    if db_obj:
-        previous_review_status = db_obj.review_status.value
-        db_obj.review_status = DocumentReviewStatus.APPROVED
-        db.commit()
-        db.refresh(db_obj)
-        _log_status_transition(db_obj.id, "review_status", previous_review_status, db_obj.review_status.value)
+    if not db_obj:
+        return None
+
+    next_source = approval_source if isinstance(approval_source, DocumentApprovalSource) else DocumentApprovalSource(approval_source)
+    previous_review_status = db_obj.review_status.value
+    db_obj.review_status = DocumentReviewStatus.APPROVED
+    db_obj.approval_source = next_source
+    db_obj.approved_at = datetime.now(timezone.utc)
+    db_obj.approved_by_user_id = approved_by_user_id
+    db_obj.last_error = None
+    db.commit()
+    db.refresh(db_obj)
+    _log_status_transition(db_obj.id, "review_status", previous_review_status, db_obj.review_status.value)
+    logger.info(
+        "document_approved document_id=%s approval_source=%s approved_by_user_id=%s",
+        db_obj.id,
+        db_obj.approval_source.value,
+        db_obj.approved_by_user_id,
+    )
     return db_obj
 
 
