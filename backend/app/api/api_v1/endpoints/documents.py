@@ -20,6 +20,7 @@ from app.schemas.document import (
     UploadDocumentResponse,
 )
 from app.services import workspace
+from app.tasks.documents import process_document, select_document_queue
 
 
 router = APIRouter()
@@ -49,13 +50,41 @@ def _validate_pdf_upload(file: UploadFile) -> int:
     return file_size
 
 
-def _dispatch_document_processing(document_id: int, queue_priority: QueuePriority | None) -> None:
+def _resolve_upload_metadata(
+    ingestion_source: IngestionSource | None,
+    queue_priority: QueuePriority | None,
+    trusted_import: bool | None,
+) -> tuple[IngestionSource, QueuePriority, bool]:
+    resolved_ingestion_source = ingestion_source or IngestionSource.USER_UPLOAD
+    if queue_priority is not None:
+        resolved_queue_priority = queue_priority
+    elif resolved_ingestion_source == IngestionSource.BULK_IMPORT:
+        resolved_queue_priority = QueuePriority.LOW
+    else:
+        resolved_queue_priority = QueuePriority.HIGH
+    return resolved_ingestion_source, resolved_queue_priority, bool(trusted_import)
+
+
+def _dispatch_document_processing(document_id: int, ingestion_source: IngestionSource, queue_priority: QueuePriority):
+    queue_name = select_document_queue(ingestion_source, queue_priority)
+    try:
+        async_result = process_document.apply_async(args=[document_id], queue=queue_name)
+    except Exception as exc:  # pragma: no cover - broker availability depends on environment
+        logger.exception(
+            "document_processing_enqueue_failed document_id=%s queue=%s error=%s",
+            document_id,
+            queue_name,
+            exc,
+        )
+        return None
+
     logger.info(
-        "document_processing_placeholder_queued document_id=%s queue_priority=%s",
+        "document_processing_enqueued document_id=%s queue=%s task_id=%s",
         document_id,
-        queue_priority.value if queue_priority else None,
+        queue_name,
+        async_result.id,
     )
-    pass
+    return async_result
 
 
 @router.post("/upload", response_model=UploadDocumentResponse)
@@ -69,6 +98,11 @@ def upload_document(
     current_user=Depends(deps.get_current_user),
 ):
     file_size = _validate_pdf_upload(file)
+    ingestion_source, queue_priority, trusted_import = _resolve_upload_metadata(
+        ingestion_source,
+        queue_priority,
+        trusted_import,
+    )
 
     safe_filename = f"{uuid.uuid4()}.pdf"
     file_path = _resolve_upload_dir() / safe_filename
@@ -89,12 +123,13 @@ def upload_document(
         trusted_import=trusted_import,
     )
 
-    _dispatch_document_processing(document.id, queue_priority)
+    _dispatch_document_processing(document.id, ingestion_source, queue_priority)
 
     return {
         "document_id": document.id,
         "review_status": document.review_status,
         "processing_status": document.processing_status,
+        "queue_priority": document.queue_priority,
         "batch_id": document.batch_id,
         "trusted_import": document.trusted_import,
         "message": "Document uploaded and queued for asynchronous processing.",

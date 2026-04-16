@@ -61,6 +61,7 @@ class UploadDocumentResponse(BaseModel):
     document_id: int
     review_status: DocumentReviewStatus
     processing_status: DocumentProcessingStatus
+    queue_priority: Optional[QueuePriority] = None
     batch_id: Optional[str] = None
     trusted_import: Optional[bool] = None
     message: str
