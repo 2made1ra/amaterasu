@@ -16,6 +16,7 @@ The ingestion backbone remains the same:
 ## Technologies Used
 
 * **LangChain:** The core framework used for document loading, text splitting, prompt management, and generation helpers.
+* **LM Studio (optional):** The backend can use an OpenAI-compatible local server instead of loading generative models inside the worker process — see [LM Studio integration](lm_studio.md).
 * **Large Language Models (LLMs):** Used for two primary purposes:
   1. **Information Extraction:** Extracting structured facts from documents as part of the ingestion pipeline.
   2. **Question Answering:** Generating natural language responses to user queries based on retrieved context.

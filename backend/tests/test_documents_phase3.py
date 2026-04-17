@@ -211,7 +211,7 @@ def test_trusted_bulk_document_auto_approves_and_enqueues_indexing(
     monkeypatch.setattr("app.tasks.documents.SessionLocal", session_factory)
     monkeypatch.setattr(
         "app.tasks.documents.extract_contract_facts_from_markdown",
-        lambda markdown: SimpleNamespace(
+        lambda markdown, **kwargs: SimpleNamespace(
             model_dump=lambda: {
                 "company_name": "Trusted Co",
                 "signatory_name": "Anna Smirnova",
@@ -282,7 +282,7 @@ def test_normal_document_stops_at_facts_ready_without_auto_approval(
     monkeypatch.setattr("app.tasks.documents.SessionLocal", session_factory)
     monkeypatch.setattr(
         "app.tasks.documents.extract_contract_facts_from_markdown",
-        lambda markdown: SimpleNamespace(
+        lambda markdown, **kwargs: SimpleNamespace(
             model_dump=lambda: {
                 "company_name": "Standard Co",
                 "signatory_name": "Maria Volkova",
@@ -347,7 +347,7 @@ def test_trusted_bulk_document_with_missing_required_fields_stops_for_review(
     monkeypatch.setattr("app.tasks.documents.SessionLocal", session_factory)
     monkeypatch.setattr(
         "app.tasks.documents.extract_contract_facts_from_markdown",
-        lambda markdown: SimpleNamespace(
+        lambda markdown, **kwargs: SimpleNamespace(
             model_dump=lambda: {
                 "document_kind": "supplier_order",
                 "company_name": "Trusted Co",

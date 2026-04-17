@@ -8,8 +8,9 @@ from app.models.document import (
     QueuePriority,
 )
 from app.services.query_router import QueryRoute, route_query
+from app.services.search_orchestration import safe_orchestrate_contract_search
 from app.services.sql_search import search_contract_facts
-from app.services.vector_search import ContractVectorSearcher
+from app.services.vector_search import ContractVectorSearcher, VectorSearchDependencyError
 from app.services.workspace import build_workspace_query_result
 
 
@@ -176,3 +177,39 @@ def test_workspace_query_result_uses_sql_orchestration(db_session, test_user, tm
     assert result.total_matches == 1
     assert result.result_tree[0]["document_id"] == document.id
     assert "Acme Master Services Agreement" in result.assistant_message
+
+
+def test_safe_orchestrate_contract_search_falls_back_when_vector_search_errors(
+    db_session,
+    test_user,
+    monkeypatch,
+    tmp_path,
+):
+    _create_approved_document(
+        db_session,
+        test_user,
+        tmp_path,
+        title="Globex Renewal",
+        supplier="Globex Corp",
+        effective_date="2024-02-01",
+        termination_date="2025-02-01",
+    )
+
+    class BrokenVectorSearcher:
+        def search_summaries(self, *, query, owner_id, limit=3):
+            raise VectorSearchDependencyError("LM Studio embeddings rejected the payload")
+
+    monkeypatch.setattr(
+        "app.services.search_orchestration.get_contract_vector_searcher",
+        lambda: BrokenVectorSearcher(),
+    )
+
+    result = safe_orchestrate_contract_search(
+        db_session,
+        owner_id=test_user.id,
+        query="Which contracts mention pricing terms?",
+        document_id=None,
+    )
+
+    assert [doc.title for doc in result.documents] == ["Globex Renewal"]
+    assert "Globex Renewal" in result.assistant_message

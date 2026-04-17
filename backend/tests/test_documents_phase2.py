@@ -227,7 +227,7 @@ def test_extract_document_facts_persists_validated_facts(
     monkeypatch.setattr("app.tasks.documents.SessionLocal", session_factory)
     monkeypatch.setattr(
         "app.tasks.documents.extract_contract_facts_from_markdown",
-        lambda markdown: SimpleNamespace(
+        lambda markdown, **kwargs: SimpleNamespace(
             model_dump=lambda: {
                 "company_name": "Acme LLC",
                 "signatory_name": "Ivan Petrov",
@@ -291,7 +291,7 @@ def test_extract_document_facts_invalid_payload_marks_failure(
 
     monkeypatch.setattr("app.tasks.documents.SessionLocal", session_factory)
 
-    def fail_extract(_markdown):
+    def fail_extract(_markdown, **kwargs):
         raise FactExtractionValidationError("schema mismatch")
 
     monkeypatch.setattr("app.tasks.documents.extract_contract_facts_from_markdown", fail_extract)
@@ -362,6 +362,59 @@ def test_prepare_contract_facts_payload_preserves_document_kind_and_missing_requ
     assert facts.missing_required_fields == ["signatory_name"]
     assert facts.parsing_method == "ocr"
     assert facts.parser_quality == "medium"
+
+
+def test_prepare_contract_facts_payload_backfills_sparse_required_fields_from_title_and_markdown():
+    facts = prepare_contract_facts_payload(
+        {
+            "service_subject": "Provision of services or scope of work defined by numbered articles.",
+            "effective_date": "12.11.2024",
+        },
+        parsing_metadata={"quality_label": "high", "quality_score": 0.93, "extraction_method": "ocr"},
+        markdown=(
+            "2.1.1leHaorOBOpa coCTaB19eT 6O00O(HeIleC1 TIC)py6en\n"
+            "3.2.CpoKoKa3ycT:12.112024no16.11.2024\n"
+            "Director\n"
+            "AHTOCHKOn A.B\n"
+        ),
+        document_title="Единый_оператор_мероприятий_Арбузов_Роман_Игоревич_договор.pdf",
+    )
+
+    assert facts.company_name == "Единый оператор мероприятий"
+    assert facts.signatory_name == "Арбузов Роман Игоревич"
+    assert facts.service_price == "60000 RUB"
+    assert facts.service_completion_date == "2024-11-16"
+    assert facts.document_title == "Единый оператор мероприятий Арбузов Роман Игоревич"
+    assert facts.missing_required_fields == ["contact_phone"]
+
+
+def test_prepare_contract_facts_payload_sanitizes_null_and_non_string_list_items():
+    facts = prepare_contract_facts_payload(
+        {
+            "company_name": "Acme LLC",
+            "signatory_name": "Ivan Petrov",
+            "contact_phone": "+7 999 123-45-67",
+            "service_price": "150000 RUB",
+            "service_subject": "Logistics support",
+            "service_completion_date": "2026-05-20",
+            "source_hints": {
+                "company_name": None,
+                "service_price": {"page_number": "2", "snippet": "  150000 RUB  "},
+                "service_subject": "Scope listed in section 2",
+            },
+            "parties": [None, "Acme LLC", 123, "  Globex  "],
+            "obligations": [None, "Deliver by 2026-05-20", {"invalid": True}],
+            "risks": [None, "Penalty for late delivery"],
+        }
+    )
+
+    assert "company_name" not in facts.source_hints
+    assert facts.source_hints["service_price"].page_number == 2
+    assert facts.source_hints["service_price"].snippet == "150000 RUB"
+    assert facts.source_hints["service_subject"].snippet == "Scope listed in section 2"
+    assert facts.parties == ["Acme LLC", "Globex"]
+    assert facts.obligations == ["Deliver by 2026-05-20"]
+    assert facts.risks == ["Penalty for late delivery"]
 
 
 def test_has_complete_required_facts_requires_all_mandatory_business_fields():

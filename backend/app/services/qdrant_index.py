@@ -38,7 +38,8 @@ class ContractVectorIndex:
 
         self.client = client or QdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
         self.embeddings = embeddings or get_embeddings()
-        self.collection_configs = build_collection_configs(vector_size)
+        resolved_vector_size = vector_size or self._resolve_vector_size()
+        self.collection_configs = build_collection_configs(resolved_vector_size)
 
     def ensure_collections(self) -> None:
         existing_collections = {collection.name for collection in self.client.get_collections().collections}
@@ -101,11 +102,23 @@ class ContractVectorIndex:
         logger.info("qdrant_chunks_upserted document_id=%s chunk_count=%s", document.id, len(points))
 
     def _embed_texts(self, texts: list[str]) -> list[list[float]]:
-        if hasattr(self.embeddings, "embed_documents"):
-            return self.embeddings.embed_documents(texts)
-        if hasattr(self.embeddings, "embed_query"):
-            return [self.embeddings.embed_query(text) for text in texts]
+        try:
+            if hasattr(self.embeddings, "embed_documents"):
+                return self.embeddings.embed_documents(texts)
+            if hasattr(self.embeddings, "embed_query"):
+                return [self.embeddings.embed_query(text) for text in texts]
+        except Exception as exc:
+            raise QdrantIndexError(f"Failed to generate embeddings: {exc}") from exc
         raise QdrantIndexError("Configured embeddings client does not support document embeddings")
+
+    def _resolve_vector_size(self) -> int:
+        if not settings.QDRANT_AUTO_DETECT_VECTOR_SIZE:
+            return settings.QDRANT_VECTOR_SIZE
+
+        sample_vectors = self._embed_texts(["vector size probe"])
+        if not sample_vectors or not sample_vectors[0]:
+            raise QdrantIndexError("Failed to infer vector size from the configured embeddings provider")
+        return len(sample_vectors[0])
 
     def _build_point(
         self,

@@ -14,12 +14,12 @@ x-backend-env: &backend-env
   REDIS_URL: redis://redis:6379/0
   # JWT и прочее; для продакшена задайте SECRET_KEY в .env или окружении хоста
   SECRET_KEY: ${SECRET_KEY:-dev-secret-change-in-production}
-  UPLOAD_DIR: /app/uploads
-  PARSED_MARKDOWN_DIR: /app/artifacts/markdown
+  UPLOAD_DIR: /app/vault/uploads
+  PARSED_MARKDOWN_DIR: /app/vault/artifacts/markdown
 
 x-backend-volumes: &backend-volumes
-  - uploads_data:/app/uploads
-  - parsed_markdown_data:/app/artifacts/markdown
+  - uploads_data:/app/vault/uploads
+  - parsed_markdown_data:/app/vault/artifacts/markdown
 
 services:
   db:

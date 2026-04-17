@@ -1,41 +1,35 @@
-# Agent Setup & Environment
+# Agent setup & environment
 
-This guide covers the setup and configuration of the AI Agent components.
+This page summarizes how the **AI / RAG** side of the backend is configured. Operational steps (Docker, `uv`, migrations, workers) live in [Backend setup](../backend/setup.md) and [Project SETUP](../SETUP.md).
 
-## Environment Variables
+## LLM and embeddings
 
-The agent relies heavily on environment variables configured in the backend's `.env` file or environment.
+- **Implementation:** [`app/services/llm.py`](../../backend/app/services/llm.py) — `get_llm()`, `get_embeddings()`, context budget helpers.
+- **Configuration:** [`app/core/config.py`](../../backend/app/core/config.py) — `LLM_PROVIDER`, `EMBEDDINGS_PROVIDER`, LM Studio URLs, token limits, Qdrant-related defaults.
 
-### 1. LLM Provider Configuration
-You must configure the LLM you intend to use. The project utilizes LangChain, which supports numerous providers (OpenAI, Anthropic, HuggingFace, etc.).
+**LM Studio (OpenAI-compatible local server):** full variable table, chat vs embedding context, chunking behavior, and verification — **[LM Studio integration (reference)](lm_studio.md)**.
 
-If using OpenAI, for example:
-```env
-OPENAI_API_KEY=your_openai_api_key_here
-```
-*(Ensure `app/services/llm.py` is configured to initialize the specific LLM based on these keys).*
+**Quick path for learners:** [Learning guide: LM Studio](../learning_guide/lmstudio_setup.md).
 
-### 2. Qdrant Configuration
-The vector database needs to be accessible by the backend. The default values match the `docker-compose.yml` setup.
+**Fact extraction returns invalid JSON:** [Fact extraction & LLM JSON errors](../backend/fact-extraction-llm-json-error.md).
+
+## Qdrant
+
+Vector collections for summaries and chunks are configured with `QDRANT_*` variables (see `config.py`). Qdrant runs via Docker Compose; workers and API must reach the same host/port as in `.env`.
 
 ```env
 QDRANT_HOST=localhost
 QDRANT_PORT=6333
 ```
 
-## Infrastructure: Qdrant Vector Database
+From the repo root:
 
-Qdrant is run via Docker Compose. Ensure it is running:
 ```bash
-docker-compose up -d qdrant
+docker compose up -d qdrant
 ```
 
-Qdrant exposes two ports:
-* `6333`: REST API
-* `6334`: gRPC API
+REST API and dashboard: port **6333** (see [Infrastructure learning guide](../learning_guide/infrastructure.md)).
 
-The backend communicates with Qdrant via the `qdrant-client` python package.
+## Embeddings note
 
-## Embedding Model Setup
-
-The project uses embeddings to convert text to vectors. This is managed in `app/services/llm.py`. Depending on the implementation, this might use OpenAI's embedding models (requiring `OPENAI_API_KEY`) or local, open-source models via `sentence-transformers`. If using local models, they will be downloaded automatically the first time they are invoked.
+By default the backend can use **Hugging Face** / `sentence-transformers` for embeddings while only the **chat** model uses LM Studio. You can also set `EMBEDDINGS_PROVIDER=lmstudio`; changing embedding model or dimension usually implies **re-indexing** — details in [LM Studio reference](lm_studio.md#lm-studio-embeddings-choice).

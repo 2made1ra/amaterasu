@@ -1,6 +1,6 @@
 import re
 from app.core.config import settings
-from app.services.llm import get_embeddings, get_llm
+from app.services.llm import extract_llm_text, get_embeddings, get_llm
 
 COLLECTION_NAME = settings.QDRANT_CHUNK_COLLECTION
 
@@ -44,12 +44,13 @@ def extract_metadata_from_text(text: str):
     llm = get_llm()
     prompt = f"Please read the following text and extract the deadline date if any. Return only the date in YYYY-MM-DD format. If not found, return 'None'. Text: {text[:2000]}"
     try:
-        response = llm(prompt)
+        response = llm.invoke(prompt) if hasattr(llm, "invoke") else llm(prompt)
+        llm_text = extract_llm_text(response)
         # basic regex search for dates in YYYY-MM-DD
         date_pattern = r'\d{4}-\d{2}-\d{2}'
-        matches = re.findall(date_pattern, response)
+        matches = re.findall(date_pattern, llm_text)
         extracted_date = matches[0] if matches else None
-    except Exception as e:
+    except Exception:
         extracted_date = None
 
     return {"deadline": extracted_date}

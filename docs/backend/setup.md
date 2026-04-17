@@ -64,7 +64,9 @@ docker compose up -d redis
 
    Settings are defined in `app/core/config.py` and read from the process environment (`os.getenv` / Pydantic Settings). Set them in your shell, IDE run configuration, or deployment secrets.
 
-   The API process does **not** automatically load a `.env` file at startup (the pytest suite loads `backend/.env` in `tests/conftest.py` for tests only). If you keep secrets in `backend/.env`, load them into the environment before `uvicorn` (for example via your IDE, direnv, or `export`).
+   Keep a local **`backend/.env`** (listed in `.gitignore`; not part of the repo) with everything `uvicorn` and Celery need—database, Redis, Qdrant, and (if you use it) LM Studio. `Settings` in `app/core/config.py` uses `env_file` pointing at this path, so importing `settings` loads these values unless the process environment overrides them. You can still `set -a && source .env` in the shell for tools that do not import the app. The **pytest** suite also loads `backend/.env` in `tests/conftest.py`.
+
+   For **LM Studio** (OpenAI-compatible HTTP API for the generative LLM), use the reference in [Agent — LM Studio integration](../agent/lm_studio.md) (including [chat vs embedding context](../agent/lm_studio.md#lm-studio-chat-vs-embedding-context)). You must set `LLM_MODEL` to the **exact** model id LM Studio exposes (`GET …/v1/models`), and use the **same** env for FastAPI and **both** Celery workers. Intro tutorial: [Learning guide — LM Studio](../learning_guide/lmstudio_setup.md).
 
    **Database & API**
 
@@ -102,7 +104,7 @@ docker compose up -d redis
    Implemented in `app/services/llm.py`:
 
    * Defaults: `LLM_PROVIDER` / `EMBEDDINGS_PROVIDER` = effective Hugging Face path (`LLM_MODEL`, `EMBEDDINGS_MODEL` as above).
-   * For **LM Studio** (OpenAI-compatible server): set `LLM_PROVIDER=lmstudio` and/or `EMBEDDINGS_PROVIDER=lmstudio`, plus `LMSTUDIO_API_BASE` (default `http://localhost:1234/v1`) and `LMSTUDIO_API_KEY`.
+   * For **LM Studio** (OpenAI-compatible server): set `LLM_PROVIDER=lmstudio` and/or `EMBEDDINGS_PROVIDER=lmstudio`, plus `LMSTUDIO_API_BASE` (default `http://localhost:1234/v1`), `LMSTUDIO_API_KEY`, and `LLM_MODEL`. Details, embedding trade-offs, and context limits: [Agent — LM Studio integration](../agent/lm_studio.md).
 
 ## Running the API
 
@@ -177,4 +179,4 @@ Fast non-integration tests:
 uv run pytest -q -m "not integration"
 ```
 
-Integration-marked tests may call a real LM Studio instance; see `pyproject.toml` marker description and your `.env` for integration runs.
+Integration-marked tests may call a real LM Studio instance; see `pyproject.toml` marker description and `backend/.env` (loaded by pytest) for integration runs. Ensure `LLM_PROVIDER=lmstudio` and a reachable `LMSTUDIO_API_BASE` if you run those tests.

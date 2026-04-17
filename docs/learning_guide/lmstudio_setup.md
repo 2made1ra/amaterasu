@@ -1,63 +1,106 @@
-# Using LM Studio with Amaterasu
+# LM Studio with Amaterasu (learning guide)
 
-This guide explains how to point the Amaterasu backend at [LM Studio](https://lmstudio.ai/)’s **OpenAI-compatible** HTTP API so chat and/or embeddings can run in LM Studio instead of loading Hugging Face models inside the Python process.
+This guide is the **short path**: why LM Studio, how to start the server, minimal env vars, and where to read the full reference. It follows the [learning guide README](README.md) idea: enough to be productive, with pointers into the repo.
 
-## Why use LM Studio?
+**Canonical reference (variables, chunking, chat vs embeddings, verification):** [Agent — LM Studio integration](../agent/lm_studio.md).
 
-1. **Separate process** — Often better GPU utilization and simpler model switching than embedding large transformers directly in the API worker.
-2. **Model choice** — Swap models in LM Studio without changing application code beyond env vars.
-3. **OpenAI-compatible API** — The backend uses `langchain_openai` clients with `base_url` pointed at LM Studio (`app/services/llm.py`).
+**Operations (LAN, Docker, two workers):** [Project SETUP § LM Studio networking](../SETUP.md#lm-studio-networking).
+
+---
+
+## Why LM Studio?
+
+1. **Separate process** — GPU and model swaps happen in LM Studio, not inside every Celery worker.
+2. **Same API shape as OpenAI** — the backend uses `langchain_openai` with `base_url` → LM Studio (`app/services/llm.py`).
+3. **Optional embeddings** — you can route **only** the chat model to LM Studio and keep Hugging Face embeddings locally (default), or send both to LM Studio.
+
+---
 
 ## Prerequisites
 
-- LM Studio installed; a model downloaded; **local server** started.
-- Backend dependencies installed (`uv sync` in `backend/`).
+- LM Studio installed; at least one **chat** model downloaded.
+- Backend deps: `uv sync` in `backend/`.
+- Infrastructure (Postgres, Redis, Qdrant) running if you exercise the full pipeline — see [Infrastructure](infrastructure.md) and [Backend learning guide](backend.md).
 
-## Step 1: Start LM Studio server
+---
 
-1. Open LM Studio → **Local Server** (sidebar).
-2. Pick a model and click **Start Server**.
-3. Note the **Base URL** (commonly `http://localhost:1234/v1`) and port.
+## Step 1 — Start the server
 
-## Step 2: Environment variables
+1. LM Studio → **Local Server**.
+2. Load a **chat** model → **Start Server**.
+3. Note the **base URL** (often `http://localhost:1234/v1`). The path must include **`/v1`** where the OpenAI-compatible routes live.
 
-Configure the process environment (shell, IDE, or deployment). Settings are read in `app/core/config.py`; the API does not auto-load `.env` on startup (tests load `.env` via pytest).
+Optional: load a dedicated **embedding** model if you plan `EMBEDDINGS_PROVIDER=lmstudio`.
 
-### LLM (text generation)
+---
+
+## Step 2 — Minimal environment
+
+Put variables in **`backend/.env`** (or export the same names for workers). Pydantic loads that file when `settings` is imported.
+
+**LLM only (typical first step):**
 
 ```env
 LLM_PROVIDER=lmstudio
-LLM_MODEL=<model-id-as-shown-in-LM-Studio>
+LLM_MODEL=<id-from-GET-/v1/models>
 LMSTUDIO_API_BASE=http://localhost:1234/v1
 LMSTUDIO_API_KEY=not-needed
 ```
 
-`LMSTUDIO_API_KEY` defaults to a placeholder; set a real value if your server requires it.
+**Align context and generation with the chat model** (see [chat vs embedding context](../agent/lm_studio.md#lm-studio-chat-vs-embedding-context)):
 
-### Embeddings (optional)
+```env
+LLM_CONTEXT_WINDOW=32287
+LLM_RESERVED_OUTPUT_TOKENS=4096
+LLM_MAX_OUTPUT_TOKENS=4096
+LLM_PROMPT_OVERHEAD_TOKENS=1024
+```
 
-You can keep **Hugging Face** embeddings (default) and only use LM Studio for the LLM—often a good balance.
+Use numbers that match **your** chat model’s *Context Length* in LM Studio — not the embedding model’s smaller window.
 
-To route embeddings through LM Studio (if your loaded model supports embedding endpoints):
+**Optional — embeddings via LM Studio:**
 
 ```env
 EMBEDDINGS_PROVIDER=lmstudio
 EMBEDDINGS_MODEL=<embedding-model-id>
-LMSTUDIO_API_BASE=http://localhost:1234/v1
 ```
 
-Leave `EMBEDDINGS_PROVIDER` unset or `huggingface` to use **sentence-transformers** locally for vectors.
+Changing embedding model or vector size usually requires **re-indexing** Qdrant — see the reference doc.
 
-## Step 3: Verify
+---
 
-1. Restart the FastAPI process after changing env vars.
-2. Trigger a flow that calls the LLM (e.g. fact extraction or chat). LM Studio’s log view should show incoming requests.
-3. If you still see Hugging Face download logs for the **LLM**, check that `LLM_PROVIDER=lmstudio` is actually visible to the running process (`print(settings.LLM_PROVIDER)` in a pinch).
+## Step 3 — Same env for API and workers
 
-## Troubleshooting
+Celery must see **`LLM_PROVIDER=lmstudio`** (and the same `LMSTUDIO_*` / `LLM_*` values) or workers will still use the default Hugging Face LLM path. Restart **uvicorn** and **both** worker queues after edits.
 
-- **Connection refused** — Server not started or wrong port; `LMSTUDIO_API_BASE` must match LM Studio (including `/v1` if required).
-- **Wrong model** — `LLM_MODEL` / `EMBEDDINGS_MODEL` should match what LM Studio expects for the loaded stack.
-- **Slow responses** — Confirm GPU acceleration in LM Studio; reduce model size or concurrency.
+---
 
-For broader LLM/Qdrant configuration, see [Agent Setup](../agent/setup.md) and [Backend Setup](../backend/setup.md).
+## Step 4 — Verify
+
+1. Restart FastAPI; trigger chat or document processing that calls the LLM.
+2. LM Studio’s log should show HTTP requests.
+3. If the **LLM** still downloads Hugging Face weights, the worker process is missing env — re-check exports / `.env` for Celery.
+
+Automated check (server must be up): `backend/tests/test_lmstudio_llm_availability.py` with `LLM_PROVIDER=lmstudio`.
+
+---
+
+## When something breaks
+
+| Symptom | Where to look |
+|--------|----------------|
+| Connection refused | Server running; port; `LMSTUDIO_API_BASE` includes `/v1` if required. |
+| Wrong model / 404 | `LLM_MODEL` must match LM Studio’s model id. |
+| Truncated JSON / fact extraction failed | Raise `LLM_MAX_OUTPUT_TOKENS`; align `LLM_CONTEXT_WINDOW` with chat model — [fact extraction & JSON](../backend/fact-extraction-llm-json-error.md). |
+| Workers behave differently from API | Same env for **both** Celery processes and uvicorn. |
+
+---
+
+## See also
+
+| Doc | Role |
+|-----|------|
+| [Agent LM Studio reference](../agent/lm_studio.md) | Full table, chunking vs `INDEXING_*`, embeddings trade-offs, tests. |
+| [Agent setup](../agent/setup.md) | Entry point for agent-side config. |
+| [SETUP.md](../SETUP.md) | End-to-end local run, LM Studio on another PC, Docker + `host.docker.internal`. |
+| [Backend setup](../backend/setup.md) | `uv`, migrations, worker commands. |

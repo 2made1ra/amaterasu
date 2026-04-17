@@ -19,7 +19,8 @@ Explore the documentation by module:
 
 ### 4. 🤖 AI Agent & Search
 * [Agent Overview](agent/overview.md) - Learn how the query router, SQL path, and vector retrieval layer fit together.
-* [Agent Setup & Environment](agent/setup.md) - Guide for configuring LLM providers and Qdrant.
+* [Agent Setup & Environment](agent/setup.md) - Entry point for LLM/Qdrant configuration; links to the LM Studio reference.
+* [LM Studio integration](agent/lm_studio.md) - Env vars, chat vs embedding context, chunking, embeddings trade-offs, verification (OpenAI-compatible local server).
 * [The Query Orchestration Flow](agent/rag_flow.md) - A step-by-step deep dive into document ingestion, filtering, routing, and retrieval.
 
 ### 5. 🔌 API Reference

@@ -21,6 +21,6 @@ Building this project means wiring four areas together:
 | [**Frontend SPA Foundations**](frontend.md) | SPA model, Svelte 5, Vite, Tailwind, Axios + JWT, client-side routing. |
 | [**AI & RAG Mechanics**](agent_rag.md) | RAG concept, ingestion vs chat paths, Qdrant collections, query orchestration, where LangChain appears today. |
 | [**Infrastructure & Orchestration**](infrastructure.md) | Docker, Compose services (`db`, `qdrant`, `redis`), volumes, how that fits local development. |
-| [**LM Studio**](lmstudio_setup.md) | OpenAI-compatible local server, env vars (`LLM_PROVIDER`, `EMBEDDINGS_PROVIDER`, `LMSTUDIO_API_*`). |
+| [**LM Studio**](lmstudio_setup.md) | Short tutorial: start server, minimal `.env`, same env for Celery; points to the full [Agent LM Studio reference](../agent/lm_studio.md). |
 
-For operational steps (env vars, workers, migrations), prefer [Backend Setup](../backend/setup.md) and [Agent Setup](../agent/setup.md).
+For operational steps (env vars, workers, migrations), prefer [Backend Setup](../backend/setup.md), [Project SETUP](../SETUP.md), and [Agent Setup](../agent/setup.md).

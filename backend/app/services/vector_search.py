@@ -102,19 +102,27 @@ class ContractVectorSearcher:
         )
 
     def _search(self, *, collection_name: str, query: str, filter_obj, limit: int):
-        query_vector = self._embed_query(query)
-        return self.client.search(
-            collection_name=collection_name,
-            query_vector=query_vector,
-            query_filter=filter_obj,
-            limit=limit,
-        )
+        try:
+            query_vector = self._embed_query(query)
+            return self.client.search(
+                collection_name=collection_name,
+                query_vector=query_vector,
+                query_filter=filter_obj,
+                limit=limit,
+            )
+        except VectorSearchDependencyError:
+            raise
+        except Exception as exc:
+            raise VectorSearchDependencyError(f"Vector search is unavailable: {exc}") from exc
 
     def _embed_query(self, query: str) -> list[float]:
-        if hasattr(self.embeddings, "embed_query"):
-            return self.embeddings.embed_query(query)
-        if hasattr(self.embeddings, "embed_documents"):
-            return self.embeddings.embed_documents([query])[0]
+        try:
+            if hasattr(self.embeddings, "embed_query"):
+                return self.embeddings.embed_query(query)
+            if hasattr(self.embeddings, "embed_documents"):
+                return self.embeddings.embed_documents([query])[0]
+        except Exception as exc:
+            raise VectorSearchDependencyError(f"Failed to generate a query embedding: {exc}") from exc
         raise VectorSearchDependencyError("Configured embeddings client does not support query embeddings")
 
     def _build_filter(self, *, owner_id: int, document_ids: list[int] | None):

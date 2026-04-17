@@ -201,7 +201,7 @@ This document provides a comprehensive list of technical terms and business conc
 ### LM Studio
 *   **EN:** A local app that serves OpenAI-compatible HTTP APIs; the backend can point `LLM_PROVIDER` / `EMBEDDINGS_PROVIDER` to `lmstudio` and use `LMSTUDIO_API_BASE` for chat and embeddings instead of local Hugging Face pipelines.
 *   **RU:** Локальное приложение с OpenAI-совместимым HTTP API; бэкенд может выставить `LLM_PROVIDER` / `EMBEDDINGS_PROVIDER` в `lmstudio` и использовать `LMSTUDIO_API_BASE` для чата и эмбеддингов вместо локальных пайплайнов Hugging Face.
-*   *See:* [Agent Setup](agent/setup.md), [LM Studio Setup](learning_guide/lmstudio_setup.md)
+*   *See:* [Agent — LM Studio integration](agent/lm_studio.md), [Agent Setup](agent/setup.md), [Learning guide — LM Studio](learning_guide/lmstudio_setup.md)
 
 ### PromptTemplate / Шаблон промпта
 *   **EN:** A reproducible way to generate prompts for LLMs, often containing instructions and placeholders for context.

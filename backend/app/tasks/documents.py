@@ -159,15 +159,24 @@ def extract_document_facts(
             extraction_run_id,
             markdown_path,
         )
+        document = crud_document.get_document(db, document_id)
+        if document is None:
+            raise RuntimeError(f"Document {document_id} not found")
         markdown = Path(markdown_path).read_text(encoding="utf-8")
         parsing_metadata = read_parsing_metadata(metadata_path)
         if parsing_metadata is None:
-            extracted_facts = extract_contract_facts_from_markdown(markdown)
+            extracted_facts = extract_contract_facts_from_markdown(markdown, document_title=document.title)
         else:
-            extracted_facts = extract_contract_facts_from_markdown(markdown, parsing_metadata=parsing_metadata)
+            extracted_facts = extract_contract_facts_from_markdown(
+                markdown,
+                parsing_metadata=parsing_metadata,
+                document_title=document.title,
+            )
         extracted_facts = prepare_contract_facts_payload(
             extracted_facts.model_dump(),
             parsing_metadata=parsing_metadata,
+            markdown=markdown,
+            document_title=document.title,
         )
         extraction_run = crud_document.get_extraction_run(db, extraction_run_id)
         if extraction_run is None:
